@@ -1,0 +1,8 @@
+{
+  "appId": "com.onnou.restaurant",
+  "appName": "the moon RESTAURANT",
+  "server": {
+    "url": "https://pos-aqri.onrender.com",
+    "cleartext": false
+  }
+}

@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>App The Moon</title>
+</head>
+<body>
+<h1>App The Moon 🚀</h1>
+</body>
+</html>

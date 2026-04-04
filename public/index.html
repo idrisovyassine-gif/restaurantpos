@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>POS Restaurant Tactile</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/styles.css">
+  <meta name="theme-color" content="#121826">
+</head>
+<body class="app-locked">
+  <div id="auth-overlay" class="auth-overlay">
+    <div class="auth-card">
+      <p class="eyebrow">Acces securise</p>
+      <h2>Code PIN requis</h2>
+      <p class="auth-copy">Entrez le code PIN pour acceder a l'application.</p>
+      <form id="auth-form" class="auth-form">
+        <label for="auth-pin">Code PIN</label>
+        <input
+          id="auth-pin"
+          type="password"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          maxlength="12"
+          placeholder="************"
+          required
+        />
+        <p id="auth-error" class="auth-error hidden"></p>
+        <button id="auth-submit" type="submit" class="pill-btn primary">Entrer</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="app-shell" class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="dot"></div>
+        <div>
+          <p class="eyebrow">Service en salle</p>
+          <h1>The Moon Brussels</h1>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button id="kitchen-print-toggle" class="ghost-btn">Impression cuisine : off</button>
+        <button id="daily-report" class="ghost-btn">Ticket journalier</button>
+        <button id="history-btn" class="ghost-btn">Historique</button>
+        <button id="refresh-tables" class="ghost-btn">Actualiser</button>
+        <button id="fullscreen-btn" class="ghost-btn">Plein ecran</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section id="tables-panel" class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Tables</p>
+            <h2>Plan tactile</h2>
+            <div class="room-switch">
+              <button id="room-normal" class="ghost-btn active">Salle normale</button>
+              <button id="room-vip" class="ghost-btn">Salle VIP</button>
+            </div>
+          </div>
+          <div class="legend">
+            <span class="legend-dot free"></span> Libre
+            <span class="legend-dot occupied"></span> Occupee
+            <span class="legend-dot to_pay"></span> A payer
+          </div>
+        </div>
+        <div id="table-grid" class="table-grid"></div>
+      </section>
+
+      <section id="order-panel" class="panel hidden">
+        <div class="panel-header">
+          <div>
+            <button id="back-to-tables" class="ghost-btn"><- Tables</button>
+            <p class="eyebrow" id="table-status-label">Table</p>
+            <h2 id="table-title">Table</h2>
+            <div id="kitchen-status" class="status-chip hidden"></div>
+          </div>
+          <div class="order-actions">
+            <button id="send-kitchen" class="pill-btn secondary">Envoyer cuisine</button>
+            <button id="mark-pay" class="pill-btn warning">A payer</button>
+          </div>
+        </div>
+
+        <div class="order-layout">
+          <div class="categories" id="category-list"></div>
+          <div class="items" id="item-list"></div>
+          <div class="summary">
+            <h3>Commande</h3>
+            <ul id="order-items" class="order-items"></ul>
+            <div class="total-row">
+              <span>Total TTC</span>
+              <strong id="order-total">0,00 EUR</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div id="ticket-modal" class="ticket-modal hidden">
+      <div class="ticket-card">
+        <div class="ticket-head">
+          <h3 id="ticket-restaurant">Ticket</h3>
+          <p id="ticket-meta"></p>
+          <p id="ticket-vat" class="ticket-vat"></p>
+        </div>
+        <div id="ticket-lines" class="ticket-lines"></div>
+        <div class="ticket-total">
+          <span>Total TTC</span>
+          <strong id="ticket-total">0,00 EUR</strong>
+        </div>
+        <div class="ticket-footer">
+          <button id="print-ticket" class="pill-btn primary">Imprimer</button>
+          <button id="email-ticket" class="pill-btn secondary">Envoyer par mail</button>
+          <button id="close-ticket" class="ghost-btn">Fermer</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="daily-modal" class="ticket-modal hidden">
+      <div class="ticket-card">
+        <div class="ticket-head">
+          <h3>Ticket journalier</h3>
+          <p id="daily-restaurant"></p>
+          <p id="daily-date"></p>
+          <p id="daily-vat" class="ticket-vat"></p>
+        </div>
+        <div id="daily-lines" class="ticket-lines"></div>
+        <div class="ticket-total">
+          <span>Total journalier</span>
+          <strong id="daily-total">0,00 EUR</strong>
+        </div>
+        <div class="ticket-footer">
+          <button id="print-daily" class="pill-btn primary">Imprimer</button>
+          <button id="close-daily" class="ghost-btn">Fermer</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="payment-modal" class="ticket-modal hidden">
+      <div class="ticket-card">
+        <div class="ticket-head">
+          <h3>Encaissement</h3>
+          <p>Introduire les montants payes en cash et en carte.</p>
+        </div>
+        <div class="payment-form">
+          <label for="payment-cash">Montant cash (EUR)</label>
+          <input id="payment-cash" type="number" min="0" step="0.01" inputmode="decimal" />
+          <label for="payment-card">Montant carte (EUR)</label>
+          <input id="payment-card" type="number" min="0" step="0.01" inputmode="decimal" />
+          <p id="payment-total-hint" class="payment-total-hint"></p>
+        </div>
+        <div class="ticket-footer">
+          <button id="confirm-payment" class="pill-btn primary">Valider paiement</button>
+          <button id="cancel-payment" class="ghost-btn">Annuler</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="history-modal" class="ticket-modal hidden">
+      <div class="ticket-card history-card">
+        <div class="ticket-head">
+          <h3>Historique paiements</h3>
+          <p id="history-summary"></p>
+        </div>
+        <div class="history-layout">
+          <div id="history-list" class="history-list"></div>
+          <div id="history-editor" class="history-editor">
+            <h4>Modifier paiement</h4>
+            <p id="history-edit-meta" class="history-meta"></p>
+            <div class="history-order-box">
+              <div class="history-row">
+                <h5>Commande payee</h5>
+                <strong id="history-order-total">0,00 EUR</strong>
+              </div>
+              <div id="history-ticket-items" class="history-ticket-items"></div>
+              <div class="history-add-box">
+                <label for="history-category">Categorie</label>
+                <select id="history-category"></select>
+                <label for="history-item">Article</label>
+                <select id="history-item"></select>
+                <button id="history-add-item" class="pill-btn secondary">Ajouter article</button>
+              </div>
+            </div>
+            <div class="payment-form">
+              <label for="history-cash">Montant cash (EUR)</label>
+              <input id="history-cash" type="number" min="0" step="0.01" inputmode="decimal" />
+              <label for="history-card">Montant carte (EUR)</label>
+              <input id="history-card" type="number" min="0" step="0.01" inputmode="decimal" />
+              <label class="history-toggle">
+                <input id="history-include-daily" type="checkbox" />
+                Afficher dans le ticket journalier
+              </label>
+              <p id="history-hint" class="payment-total-hint"></p>
+            </div>
+            <div class="ticket-footer">
+              <button id="history-save" class="pill-btn primary">Enregistrer</button>
+              <button id="history-close" class="ghost-btn">Fermer</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="option-modal" class="ticket-modal hidden">
+      <div class="ticket-card option-card">
+        <div class="ticket-head">
+          <h3 id="option-title">Choix</h3>
+          <p id="option-subtitle"></p>
+        </div>
+        <div id="option-list" class="option-list"></div>
+        <div class="ticket-footer">
+          <button id="option-cancel" class="ghost-btn">Annuler</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="print-root" class="print-root" aria-hidden="true"></div>
+  </div>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>
