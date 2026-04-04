@@ -1,6 +1,7 @@
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const PDFDocument = require("pdfkit");
 const express = require("express");
 const cors = require("cors");
 
@@ -404,33 +405,8 @@ const formatDateTime = (value) =>
     timeZone: "Europe/Brussels"
   }).format(new Date(value));
 
-const buildTelegramTicketMessage = (ticket) => {
-  const header = [
-    "NOUVEAU TICKET ENCAISSE",
-    ticket.restaurant || RESTAURANT_NAME,
-    `Ticket #${String(ticket.ticketNumber).padStart(4, "0")}`,
-    `Date: ${formatDateTime(ticket.date)}`,
-    `Salle: ${ticket.roomLabel || ROOM_LABELS.normal}`,
-    `Table: ${ticket.tableNumber || ticket.table}`,
-    `Paiement: ${paymentMethodLabel(ticket.paymentMethod)}`
-  ];
-
-  const itemLines = (ticket.items || []).map(
-    (line) => `- ${line.qty} x ${line.name} | ${formatMoney(line.price * line.qty)} EUR`
-  );
-
-  const totals = [
-    `Total TTC: ${formatMoney(ticket.totalTtc)} EUR`,
-    `Cash: ${formatMoney(ticket.paidCash ?? ticket.totalCash ?? 0)} EUR`,
-    `Carte: ${formatMoney(ticket.paidCard ?? ticket.totalCard ?? 0)} EUR`
-  ];
-
-  if ((ticket.changeDue || 0) > 0) {
-    totals.push(`Rendu: ${formatMoney(ticket.changeDue)} EUR`);
-  }
-
-  return [...header, "", "Articles:", ...(itemLines.length ? itemLines : ["- Aucun article"]), "", ...totals].join("\n");
-};
+const buildTelegramTicketCaption = (ticket) =>
+  `Ticket #${String(ticket.ticketNumber).padStart(4, "0")} - ${ticket.roomLabel || ROOM_LABELS.normal} - Table ${ticket.tableNumber || ticket.table}`;
 
 const buildDailyReportData = (dateKey) => {
   const todayTickets = settledTickets.filter((t) => {
@@ -474,37 +450,120 @@ const buildDailyReportData = (dateKey) => {
   };
 };
 
-const buildTelegramDailyReportMessage = (report) => {
-  const itemLines = (report.items || []).map(
-    (line) => `- ${line.qty} x ${line.name} | ${formatMoney(line.total)} EUR`
-  );
+const buildTelegramDailyReportCaption = (report) =>
+  `TICKET DE LA JOURNEE - ${report.date}`;
 
-  return [
-    "TICKET DE LA JOURNEE",
-    RESTAURANT_NAME,
-    `Date: ${report.date}`,
-    "",
-    `Cash: ${formatMoney(report.totalCash)} EUR`,
-    `Carte: ${formatMoney(report.totalCard)} EUR`,
-    `Total TTC: ${formatMoney(report.totalTtc)} EUR`,
-    "",
-    "Recap articles:",
-    ...(itemLines.length ? itemLines : ["- Aucun ticket pour cette date"])
-  ].join("\n");
-};
+const buildTicketPdfBuffer = (ticket) =>
+  new Promise((resolve, reject) => {
+    const doc = new PDFDocument({
+      size: [226.77, 700],
+      margins: { top: 20, bottom: 20, left: 18, right: 18 }
+    });
+    const chunks = [];
 
-const sendTelegramMessage = async (text) => {
+    doc.on("data", (chunk) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    doc.font("Helvetica-Bold").fontSize(15).text(ticket.restaurant || RESTAURANT_NAME, { align: "center" });
+    doc.moveDown(0.25);
+    doc.font("Helvetica").fontSize(10).text(`Ticket #${String(ticket.ticketNumber).padStart(4, "0")}`, {
+      align: "center"
+    });
+    doc.text(`Date: ${formatDateTime(ticket.date)}`, { align: "center" });
+    doc.text(`Salle: ${ticket.roomLabel || ROOM_LABELS.normal}`, { align: "center" });
+    doc.text(`Table: ${ticket.tableNumber || ticket.table}`, { align: "center" });
+    doc.text(`Paiement: ${paymentMethodLabel(ticket.paymentMethod)}`, { align: "center" });
+    if (ticket.vatNumber) {
+      doc.text(`TVA: ${ticket.vatNumber}`, { align: "center" });
+    }
+
+    doc.moveDown(0.7);
+    doc.font("Helvetica-Bold").fontSize(11).text("Articles");
+    doc.moveDown(0.3);
+
+    (ticket.items || []).forEach((line) => {
+      doc.font("Helvetica").fontSize(10).text(
+        `${line.qty} x ${line.name}`,
+        { width: 120, continued: true }
+      );
+      doc.text(`${formatMoney(line.price * line.qty)} EUR`, { align: "right" });
+    });
+
+    doc.moveDown(0.7);
+    doc.font("Helvetica-Bold").fontSize(11).text(`Total TTC: ${formatMoney(ticket.totalTtc)} EUR`);
+    doc.font("Helvetica").fontSize(10).text(`Cash: ${formatMoney(ticket.paidCash ?? ticket.totalCash ?? 0)} EUR`);
+    doc.text(`Carte: ${formatMoney(ticket.paidCard ?? ticket.totalCard ?? 0)} EUR`);
+    if ((ticket.changeDue || 0) > 0) {
+      doc.text(`Rendu: ${formatMoney(ticket.changeDue)} EUR`);
+    }
+
+    doc.end();
+  });
+
+const buildDailyReportPdfBuffer = (report) =>
+  new Promise((resolve, reject) => {
+    const doc = new PDFDocument({
+      size: [226.77, 700],
+      margins: { top: 20, bottom: 20, left: 18, right: 18 }
+    });
+    const chunks = [];
+
+    doc.on("data", (chunk) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    doc.font("Helvetica-Bold").fontSize(15).text(RESTAURANT_NAME, { align: "center" });
+    doc.moveDown(0.25);
+    doc.font("Helvetica-Bold").fontSize(11).text("TICKET DE LA JOURNEE", { align: "center" });
+    doc.font("Helvetica").fontSize(10).text(`Date: ${report.date}`, { align: "center" });
+    if (report.vatNumber) {
+      doc.text(`TVA: ${report.vatNumber}`, { align: "center" });
+    }
+
+    doc.moveDown(0.7);
+    doc.font("Helvetica-Bold").fontSize(11).text("Recap paiements");
+    doc.moveDown(0.3);
+    doc.font("Helvetica").fontSize(10).text(`Cash: ${formatMoney(report.totalCash)} EUR`);
+    doc.text(`Carte: ${formatMoney(report.totalCard)} EUR`);
+    doc.font("Helvetica-Bold").text(`Total TTC: ${formatMoney(report.totalTtc)} EUR`);
+
+    doc.moveDown(0.7);
+    doc.font("Helvetica-Bold").fontSize(11).text("Articles");
+    doc.moveDown(0.3);
+
+    if (!report.items || report.items.length === 0) {
+      doc.font("Helvetica").fontSize(10).text("Aucun ticket pour cette date.");
+    } else {
+      report.items.forEach((line) => {
+        doc.font("Helvetica").fontSize(10).text(
+          `${line.qty} x ${line.name}`,
+          { width: 120, continued: true }
+        );
+        doc.text(`${formatMoney(line.total)} EUR`, { align: "right" });
+      });
+    }
+
+    doc.end();
+  });
+
+const sendTelegramDocument = async ({ buffer, filename, caption }) => {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
     return { sent: false, reason: "disabled" };
   }
 
-  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+  const form = new FormData();
+  form.append("chat_id", TELEGRAM_CHAT_ID);
+  form.append("caption", caption);
+  form.append(
+    "document",
+    new Blob([buffer], { type: "application/pdf" }),
+    filename
+  );
+
+  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: TELEGRAM_CHAT_ID,
-      text
-    })
+    body: form
   });
 
   if (!response.ok) {
@@ -514,6 +573,20 @@ const sendTelegramMessage = async (text) => {
 
   return { sent: true };
 };
+
+const sendTelegramTicket = async (ticket) =>
+  sendTelegramDocument({
+    buffer: await buildTicketPdfBuffer(ticket),
+    filename: `ticket-${ticket.ticketDateKey}-${String(ticket.ticketNumber).padStart(4, "0")}.pdf`,
+    caption: buildTelegramTicketCaption(ticket)
+  });
+
+const sendTelegramDailyReport = async (report) =>
+  sendTelegramDocument({
+    buffer: await buildDailyReportPdfBuffer(report),
+    filename: `ticket-journee-${report.date}.pdf`,
+    caption: buildTelegramDailyReportCaption(report)
+  });
 
 const createOrder = (tableId) => {
   const id = `${Date.now()}-${tableId}-${Math.floor(Math.random() * 9999)}`;
@@ -732,7 +805,7 @@ app.post("/api/orders/:id/settle", async (req, res) => {
   order.status = "settled";
   orders.delete(order.id);
   try {
-    await sendTelegramMessage(buildTelegramTicketMessage(ticket));
+    await sendTelegramTicket(ticket);
   } catch (error) {
     console.error("Impossible d'envoyer le ticket vers Telegram", error);
   }
@@ -835,7 +908,7 @@ app.post("/api/reports/daily/send", async (req, res) => {
   const report = buildDailyReportData(targetKey);
 
   try {
-    const result = await sendTelegramMessage(buildTelegramDailyReportMessage(report));
+    const result = await sendTelegramDailyReport(report);
     res.json({ ok: true, sent: result.sent, date: targetKey });
   } catch (error) {
     console.error("Impossible d'envoyer le ticket journalier vers Telegram", error);
