@@ -186,7 +186,10 @@ const menu = [
       { id: "rhum", name: "Rhum (Havana Club, Bacardi, Captain Morgan)", price: 12.0 },
       { id: "rhum-premium", name: "Rhum Premium (Diplomatico, Zacapa, Don Papa)", price: 15.0 },
       { id: "gin", name: "Gin (Beefeater, Bombay)", price: 12.0 },
-      { id: "cognac", name: "Cognac (Hennessy VS, Courvoisier)", price: 15.0 }
+      { id: "cognac", name: "Cognac (Hennessy VS, Courvoisier)", price: 15.0 },
+      { id: "heineken-corona-desperados", name: "Heineken / Corona / Desperados", price: 6.0 },
+      { id: "kriek", name: "Kriek", price: 6.0 },
+      { id: "leffe-chimay", name: "Leffe / Chimay", price: 7.0 }
     ]
   },
   {
