@@ -23,6 +23,7 @@
 };
 
 let lastTicket = null;
+let pendingPrintCleanup = null;
 let appBootstrapPromise = null;
 const RESTAURANT_NAME = "The Moon Brussels";
 
@@ -601,17 +602,39 @@ const openPrintWindow = (html) => {
     alert("Zone d'impression introuvable");
     return;
   }
+  if (typeof pendingPrintCleanup === "function") {
+    pendingPrintCleanup();
+    pendingPrintCleanup = null;
+  }
   const parsed = new DOMParser().parseFromString(html, "text/html");
   printRoot.innerHTML = parsed.body ? parsed.body.innerHTML : html;
 
+  let cleaned = false;
   const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    window.removeEventListener("afterprint", handleAfterPrint);
+    window.removeEventListener("focus", handleWindowFocus);
     printRoot.innerHTML = "";
+    pendingPrintCleanup = null;
   };
+
+  const handleAfterPrint = () => {
+    setTimeout(cleanup, 0);
+  };
+
+  const handleWindowFocus = () => {
+    // Fallback for browsers that restore focus but never fire `afterprint`.
+    setTimeout(cleanup, 300);
+  };
+
+  pendingPrintCleanup = cleanup;
+  window.addEventListener("afterprint", handleAfterPrint, { once: true });
+  window.addEventListener("focus", handleWindowFocus, { once: true });
 
   requestAnimationFrame(() => {
     setTimeout(() => {
       window.print();
-      setTimeout(cleanup, 5000);
     }, 150);
   });
 };
