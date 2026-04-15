@@ -91,7 +91,9 @@ const CATEGORIES_WITH_SAUCE = new Set(["viandes", "volailles", "anniversaire"]);
 const CATEGORIES_WITH_COOKING = new Set(["viandes"]);
 const CATEGORIES_WITH_GRATIN = new Set(["volailles", "pates"]);
 const CATEGORIES_WITH_ENTREE = new Set(["anniversaire"]);
+const CATEGORIES_WITH_ALCOHOL_OPTION = new Set(["mocktails", "mojitos"]);
 const ANNIV_ITEMS_WITH_COOKING = new Set(["menu-excellence"]);
+const ALCOHOL_SUPPLEMENT_PRICE = 3;
 const ACCOMPANIMENT_OPTIONS = [
   { id: "frites", label: "Frites" },
   { id: "trio-legumes", label: "Trio de legumes" },
@@ -140,6 +142,10 @@ const COOKING_OPTIONS = [
   { id: "saignant", label: "Saignant" },
   { id: "a-point", label: "a Point" },
   { id: "bien-cuit", label: "Bien Cuit" }
+];
+const ALCOHOL_OPTIONS = [
+  { id: "sans-alcool", label: "Sans alcool" },
+  { id: "alcoolise", label: `Alcoolise (+${ALCOHOL_SUPPLEMENT_PRICE} EUR)` }
 ];
 let optionResolver = null;
 
@@ -296,13 +302,14 @@ const renderItems = () => {
   if (!category) return;
   const hasAccompaniment = CATEGORIES_WITH_ACCOMPANIMENT.has(category.id);
   const hasSauce = CATEGORIES_WITH_SAUCE.has(category.id);
+  const hasAlcoholOption = CATEGORIES_WITH_ALCOHOL_OPTION.has(category.id);
   category.items.forEach((item) => {
     const card = document.createElement("div");
     card.className = "item-card";
     const orderItems = state.currentOrder?.items || [];
-    const qty = hasAccompaniment
+    const qty = hasAccompaniment || hasAlcoholOption
       ? orderItems
-          .filter((i) => i.sourceItemId === item.id)
+          .filter((i) => i.sourceItemId === item.id || i.id === item.id)
           .reduce((acc, curr) => acc + (curr.qty || 0), 0)
       : orderItems.find((i) => i.id === item.id)?.qty || 0;
     let priceLabel = euros(item.price);
@@ -323,6 +330,9 @@ const renderItems = () => {
     }
     if (hasGratin) {
       priceLabel = `${priceLabel} + gratine en option ${euros(GRATIN_PRICE)}`;
+    }
+    if (hasAlcoholOption) {
+      priceLabel = `${priceLabel} + alcoolise en option ${euros(ALCOHOL_SUPPLEMENT_PRICE)}`;
     }
     card.innerHTML = `
       <div>
@@ -465,6 +475,13 @@ const pickCooking = (itemName) =>
     options: COOKING_OPTIONS
   });
 
+const pickAlcoholOption = (itemName) =>
+  pickFromModal({
+    title: `Option - ${itemName}`,
+    subtitle: `Alcoolise ajoute ${euros(ALCOHOL_SUPPLEMENT_PRICE)}`,
+    options: ALCOHOL_OPTIONS
+  });
+
 if (optionCancelBtn) {
   optionCancelBtn.addEventListener("click", () => resolveOption(null));
 }
@@ -482,12 +499,38 @@ const applyItemDelta = async (baseItems, item, delta, categoryId = state.activeC
   const needsCooking = itemNeedsCooking(categoryId, item.id);
   const needsGratin = CATEGORIES_WITH_GRATIN.has(categoryId);
   const needsEntree = CATEGORIES_WITH_ENTREE.has(categoryId);
+  const needsAlcoholOption = CATEGORIES_WITH_ALCOHOL_OPTION.has(categoryId);
   const needsIncludedSoft = categoryId === "anniversaire";
   const isAnnivInfo = categoryId === "anniversaire" && item.id === "anniv-infos";
   const existingOrderLine = isOrderLine ? items.find((i) => i.id === item.id) : null;
 
   if (existingOrderLine) {
     existingOrderLine.qty = Math.max(0, existingOrderLine.qty + delta);
+  } else if (needsAlcoholOption) {
+    if (delta > 0) {
+      const alcoholOption = await pickAlcoholOption(item.name);
+      if (!alcoholOption) return null;
+      const isAlcoholized = alcoholOption.id === "alcoolise";
+      const lineId = `${item.id}__alcohol__${alcoholOption.id}`;
+      const existing = items.find((i) => i.id === lineId);
+      if (!existing) {
+        items.push({
+          id: lineId,
+          sourceItemId: item.id,
+          alcoholOptionId: alcoholOption.id,
+          name: `${item.name} - ${isAlcoholized ? "Alcoolise" : "Sans alcool"}`,
+          price: item.price + (isAlcoholized ? ALCOHOL_SUPPLEMENT_PRICE : 0),
+          qty: 1
+        });
+      } else {
+        existing.qty += 1;
+      }
+    } else if (delta < 0) {
+      const candidates = items.filter((i) => (i.sourceItemId === item.id || i.id === item.id) && i.qty > 0);
+      if (candidates.length > 0) {
+        candidates[0].qty = Math.max(0, candidates[0].qty - 1);
+      }
+    }
   } else if ((needsAccompaniment || needsSauce || needsCooking || needsGratin || needsEntree) && !isAnnivInfo) {
     if (delta > 0) {
       const entree = needsEntree ? await pickEntree(item.name, item.id) : null;
