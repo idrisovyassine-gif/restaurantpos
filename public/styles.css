@@ -148,6 +148,10 @@ body::after {
     margin: 0 !important;
   }
 
+  body::after {
+    display: none !important;
+  }
+
   body * {
     visibility: hidden !important;
   }
@@ -159,27 +163,17 @@ body::after {
 
   .print-root {
     display: block;
-    position: absolute;
-    left: 50%;
+    position: fixed;
+    left: 0;
     top: 0;
     width: 80mm;
     padding: 4mm 2mm;
     background: #fff;
     color: #000;
     font-family: "Segoe UI", "Noto Sans", "Arial Unicode MS", "DejaVu Sans", sans-serif;
-    font-size: 26px;
+    font-size: 14px;
     line-height: 1.2;
     text-align: center;
-    transform: translateX(-50%);
-  }
-
-  .print-root::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: url("/logo.png") center 10mm / 42mm no-repeat;
-    opacity: 0.18;
-    pointer-events: none;
   }
 
   .print-root > * {
@@ -188,14 +182,14 @@ body::after {
   }
 
   .print-root h2 {
-    font-size: 32px;
+    font-size: 18px;
     margin: 0 0 6px 0;
   }
 
   .print-root .meta,
   .print-root .ticket-row,
   .print-root .price {
-    font-size: 24px;
+    font-size: 14px;
   }
 
   .print-root .ticket-lines,

@@ -657,28 +657,22 @@ const openPrintWindow = (html) => {
     if (cleaned) return;
     cleaned = true;
     window.removeEventListener("afterprint", handleAfterPrint);
-    window.removeEventListener("focus", handleWindowFocus);
     printRoot.innerHTML = "";
     pendingPrintCleanup = null;
   };
 
   const handleAfterPrint = () => {
-    setTimeout(cleanup, 0);
-  };
-
-  const handleWindowFocus = () => {
-    // Fallback for browsers that restore focus but never fire `afterprint`.
-    setTimeout(cleanup, 300);
+    setTimeout(cleanup, 1000);
   };
 
   pendingPrintCleanup = cleanup;
   window.addEventListener("afterprint", handleAfterPrint, { once: true });
-  window.addEventListener("focus", handleWindowFocus, { once: true });
 
   requestAnimationFrame(() => {
     setTimeout(() => {
       window.print();
-    }, 150);
+      setTimeout(cleanup, 120000);
+    }, 300);
   });
 };
 
