@@ -640,40 +640,55 @@ const renderKitchenStatus = () => {
 };
 
 const openPrintWindow = (html) => {
-  const printRoot = document.getElementById("print-root");
-  if (!printRoot) {
-    alert("Zone d'impression introuvable");
-    return;
-  }
   if (typeof pendingPrintCleanup === "function") {
     pendingPrintCleanup();
     pendingPrintCleanup = null;
   }
-  const parsed = new DOMParser().parseFromString(html, "text/html");
-  printRoot.innerHTML = parsed.body ? parsed.body.innerHTML : html;
+
+  const frame = document.createElement("iframe");
+  frame.setAttribute("aria-hidden", "true");
+  frame.style.position = "fixed";
+  frame.style.right = "0";
+  frame.style.bottom = "0";
+  frame.style.width = "1px";
+  frame.style.height = "1px";
+  frame.style.border = "0";
+  frame.style.opacity = "0";
+  frame.srcdoc = html;
+  document.body.appendChild(frame);
 
   let cleaned = false;
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
-    window.removeEventListener("afterprint", handleAfterPrint);
-    printRoot.innerHTML = "";
+    frame.remove();
     pendingPrintCleanup = null;
   };
 
-  const handleAfterPrint = () => {
-    setTimeout(cleanup, 1000);
-  };
-
   pendingPrintCleanup = cleanup;
-  window.addEventListener("afterprint", handleAfterPrint, { once: true });
 
-  requestAnimationFrame(() => {
-    setTimeout(() => {
-      window.print();
-      setTimeout(cleanup, 120000);
-    }, 300);
-  });
+  frame.addEventListener(
+    "load",
+    () => {
+      setTimeout(() => {
+        const printWindow = frame.contentWindow;
+        if (!printWindow) {
+          cleanup();
+          return;
+        }
+
+        const handleAfterPrint = () => {
+          setTimeout(cleanup, 1000);
+        };
+
+        printWindow.addEventListener("afterprint", handleAfterPrint, { once: true });
+        printWindow.focus();
+        printWindow.print();
+        setTimeout(cleanup, 120000);
+      }, 500);
+    },
+    { once: true }
+  );
 };
 
 const printKitchenTicket = (order) => {
