@@ -764,28 +764,40 @@ const printReceiptTicket = () => {
       : typeof lastTicket.totalCard === "number"
         ? lastTicket.totalCard
         : 0;
+  const buildPrintRow = (label, amount, options = {}) => {
+    const { strong = false, marginTop = 0 } = options;
+    const valueTag = strong ? "strong" : "span";
+    return `<table style="width:100%;border-collapse:collapse;margin:${marginTop}px 0 0 0;background:#fff;color:#000;">
+      <tr>
+        <td style="font-size:14px;padding:2px 0;text-align:left;background:#fff;color:#000;">${label}</td>
+        <td style="font-size:14px;padding:2px 0;text-align:right;white-space:nowrap;background:#fff;color:#000;"><${valueTag}>${amount}</${valueTag}></td>
+      </tr>
+    </table>`;
+  };
   const lines = (lastTicket.items || [])
     .map(
       (line) =>
-        `<div style="display:flex;justify-content:space-between;font-size:15px;margin:4px 0;">
-          <strong>${line.qty} x</strong>
-          <span style="flex:1;margin:0 8px;">${line.name}</span>
-          <span>${euros(line.price * line.qty)}</span>
-        </div>`
+        `<table style="width:100%;border-collapse:collapse;margin:4px 0;background:#fff;color:#000;">
+          <tr>
+            <td style="font-size:15px;padding:0;text-align:left;white-space:nowrap;background:#fff;color:#000;"><strong>${line.qty} x</strong></td>
+            <td style="font-size:15px;padding:0 8px;text-align:left;background:#fff;color:#000;">${line.name}</td>
+            <td style="font-size:15px;padding:0;text-align:right;white-space:nowrap;background:#fff;color:#000;">${euros(line.price * line.qty)}</td>
+          </tr>
+        </table>`
     )
     .join("") || "<div style='margin:8px 0;'>Aucun article</div>";
   let paymentDetails = "";
   if (totalCash > 0) {
-    paymentDetails += `<div style="display:flex;justify-content:space-between;font-size:14px;"><span>Cash</span><strong>${euros(totalCash)}</strong></div>`;
+    paymentDetails += buildPrintRow("Cash", euros(totalCash), { strong: true });
   }
   if (totalCard > 0) {
-    paymentDetails += `<div style="display:flex;justify-content:space-between;font-size:14px;"><span>Carte</span><strong>${euros(totalCard)}</strong></div>`;
+    paymentDetails += buildPrintRow("Carte", euros(totalCard), { strong: true });
   }
   if (!paymentDetails) {
-    paymentDetails = `<div style="display:flex;justify-content:space-between;font-size:14px;"><span>${methodLabel}</span><strong>${euros(lastTicket.totalTtc || 0)}</strong></div>`;
+    paymentDetails = buildPrintRow(methodLabel, euros(lastTicket.totalTtc || 0), { strong: true });
   }
   if (typeof lastTicket.changeDue === "number" && lastTicket.changeDue > 0) {
-    paymentDetails += `<div style="display:flex;justify-content:space-between;font-size:14px;"><span>Rendu</span><strong>${euros(lastTicket.changeDue)}</strong></div>`;
+    paymentDetails += buildPrintRow("Rendu", euros(lastTicket.changeDue), { strong: true });
   }
   const vatLine = hasVatNumber(lastTicket.vatNumber)
     ? `<div class="meta">TVA: ${lastTicket.vatNumber}</div>`
@@ -798,23 +810,27 @@ const printReceiptTicket = () => {
         <meta charset="utf-8" />
         <title>Ticket</title>
         <style>
-          body { font-family: "Segoe UI", "Noto Sans", "Arial Unicode MS", "DejaVu Sans", sans-serif; padding: 12px; }
+          html, body { margin: 0; padding: 0; background: #fff; }
+          body { font-family: "Segoe UI", "Noto Sans", "Arial Unicode MS", "DejaVu Sans", sans-serif; color: #000; }
+          .ticket-print { width: 72mm; margin: 0 auto; padding: 12px 4px; background: #fff; color: #000; }
           h2 { margin: 0 0 8px 0; font-size: 18px; }
           .meta { font-size: 14px; margin-bottom: 8px; }
           hr { border: 0; border-top: 1px dashed #333; margin: 8px 0; }
         </style>
       </head>
       <body>
-        <h2>${lastTicket.restaurant || "Ticket"}</h2>
-        <div class="meta">Ticket N ${formatTicketNumber(lastTicket.ticketNumber)}</div>
-        <div class="meta">${tableDisplayLabel(lastTicket)}  -  ${date.toLocaleDateString()} ${date.toLocaleTimeString()}  -  ${methodLabel}</div>
-        ${vatLine}
-        <hr/>
-        ${lines}
-        <hr/>
-        ${paymentDetails}
-        <div style="display:flex;justify-content:space-between;font-size:16px;"><strong>Total TTC</strong><strong>${euros(lastTicket.totalTtc || 0)}</strong></div>
-        <div style="margin-top:10px;font-size:13px;text-align:center;">Chauss&#233;e d'Haecht 32, 1210 Bruxelles</div>
+        <div class="ticket-print">
+          <h2>${lastTicket.restaurant || "Ticket"}</h2>
+          <div class="meta">Ticket N ${formatTicketNumber(lastTicket.ticketNumber)}</div>
+          <div class="meta">${tableDisplayLabel(lastTicket)}  -  ${date.toLocaleDateString()} ${date.toLocaleTimeString()}  -  ${methodLabel}</div>
+          ${vatLine}
+          <hr/>
+          ${lines}
+          <hr/>
+          ${paymentDetails}
+          ${buildPrintRow("Total TTC", euros(lastTicket.totalTtc || 0), { strong: true, marginTop: 4 })}
+          <div style="margin-top:10px;font-size:13px;text-align:center;">Chauss&#233;e d'Haecht 32, 1210 Bruxelles</div>
+        </div>
       </body>
     </html>
   `;
