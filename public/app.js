@@ -255,6 +255,14 @@ const paymentMethodLabel = (method) => {
   return "Carte";
 };
 
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
 
 const statusLabel = (status) => {
   if (status === "occupied") return "Occupee";
@@ -639,251 +647,158 @@ const renderKitchenStatus = () => {
   kitchenStatus.textContent = "Envoye en cuisine";
 };
 
-const THERMAL_PAPER_WIDTH_MM = 80;
-const THERMAL_CONTENT_WIDTH_MM = 72;
+const openPrintWindow = (html, options = {}) => {
+  const existingFrame = document.getElementById("ticket-print-frame");
+  if (existingFrame) existingFrame.remove();
 
-const buildPrintRow = (label, amount = "", options = {}) => {
-  const { strong = false, marginTop = 0 } = options;
-  const valueTag = strong ? "strong" : "span";
-  return `<table style="width:100%;border-collapse:collapse;margin:${marginTop}px 0 0 0;background:#fff;color:#000;">
-    <tr>
-      <td style="font-size:14px;padding:2px 0;text-align:left;vertical-align:top;background:#fff;color:#000;">${label}</td>
-      <td style="font-size:14px;padding:2px 0;text-align:right;vertical-align:top;white-space:nowrap;background:#fff;color:#000;"><${valueTag}>${amount}</${valueTag}></td>
-    </tr>
-  </table>`;
-};
-
-const buildThermalPrintDocument = (title, body) => `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${title}</title>
-    <style>
-      @page {
-        size: ${THERMAL_PAPER_WIDTH_MM}mm auto;
-        margin: 0;
-      }
-
-      html,
-      body {
-        margin: 0;
-        padding: 0;
-        width: 100%;
-        background: #fff;
-      }
-
-      * {
-        box-sizing: border-box;
-        background: #fff !important;
-        color: #000 !important;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
-
-      body {
-        font-family: "Segoe UI", "Noto Sans", "Arial Unicode MS", "DejaVu Sans", sans-serif;
-      }
-
-      .ticket-print {
-        width: ${THERMAL_CONTENT_WIDTH_MM}mm;
-        margin: 0 auto;
-        padding: 3mm 2mm 2mm;
-        background: #fff;
-        color: #000;
-      }
-
-      .ticket-print h2 {
-        margin: 0 0 2mm;
-        font-size: 18px;
-        line-height: 1.2;
-        text-align: center;
-        font-weight: 800;
-      }
-
-      .ticket-print .meta {
-        margin: 0 0 1.2mm;
-        font-size: 14px;
-        line-height: 1.25;
-        text-align: center;
-      }
-
-      .ticket-print hr {
-        border: 0;
-        border-top: 1px dashed #000;
-        margin: 2mm 0;
-      }
-
-      .ticket-print table {
-        width: 100%;
-        border-collapse: collapse;
-      }
-
-      .ticket-print td {
-        font-size: 14px;
-        line-height: 1.25;
-        padding: 2px 0;
-        vertical-align: top;
-      }
-
-      .ticket-print .qty {
-        white-space: nowrap;
-        font-weight: 700;
-      }
-
-      .ticket-print .name {
-        padding: 0 8px;
-        word-break: break-word;
-      }
-
-      .ticket-print .amount {
-        text-align: right;
-        white-space: nowrap;
-      }
-
-      .ticket-print .footer {
-        margin-top: 10px;
-        font-size: 13px;
-        text-align: center;
-      }
-    </style>
-  </head>
-  <body>${body}</body>
-</html>`;
-
-const openPrintWindow = (html) => {
-  if (typeof pendingPrintCleanup === "function") {
-    pendingPrintCleanup();
-    pendingPrintCleanup = null;
-  }
-
-  const popup = window.open("", "_blank", "width=420,height=900");
-  if (popup && !popup.closed) {
-    popup.document.open();
-    popup.document.write(html);
-    popup.document.close();
-
-    const cleanup = () => {
-      try {
-        if (!popup.closed) popup.close();
-      } catch (err) {
-        console.error("Impossible de fermer la fenetre d'impression", err);
-      } finally {
-        pendingPrintCleanup = null;
-      }
-    };
-
-    pendingPrintCleanup = cleanup;
-
-    const launchPrint = () => {
-      try {
-        popup.focus();
-        popup.print();
-        setTimeout(cleanup, 120000);
-      } catch (err) {
-        console.error("Impossible de lancer l'impression popup", err);
-        cleanup();
-      }
-    };
-
-    popup.addEventListener("afterprint", () => setTimeout(cleanup, 1000), { once: true });
-    if (popup.document.readyState === "complete") {
-      setTimeout(launchPrint, 300);
-    } else {
-      popup.addEventListener("load", () => setTimeout(launchPrint, 300), { once: true });
-    }
-    return;
-  }
-
-  const objectUrl = URL.createObjectURL(new Blob([html], { type: "text/html" }));
   const frame = document.createElement("iframe");
+  frame.id = "ticket-print-frame";
   frame.setAttribute("aria-hidden", "true");
   frame.style.position = "fixed";
   frame.style.right = "0";
   frame.style.bottom = "0";
   frame.style.width = "1px";
   frame.style.height = "1px";
-  frame.style.border = "0";
   frame.style.opacity = "0";
-  frame.src = objectUrl;
+  frame.style.border = "0";
+  frame.style.pointerEvents = "none";
   document.body.appendChild(frame);
+
+  const frameWindow = frame.contentWindow;
+  if (!frameWindow) {
+    frame.remove();
+    alert("Impossible d'ouvrir l'impression");
+    return;
+  }
 
   let cleaned = false;
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
     frame.remove();
-    URL.revokeObjectURL(objectUrl);
-    pendingPrintCleanup = null;
   };
 
-  pendingPrintCleanup = cleanup;
+  const triggerPrint = () => {
+    setTimeout(() => {
+      try {
+        frameWindow.focus();
+        frameWindow.print();
+        setTimeout(cleanup, options.cleanupDelay || 120000);
+      } catch (error) {
+        console.error(error);
+        cleanup();
+        alert("Impossible de lancer l'impression");
+      }
+    }, options.printDelay || 400);
+  };
 
-  frame.addEventListener(
-    "load",
-    () => {
-      setTimeout(() => {
-        const printWindow = frame.contentWindow;
-        if (!printWindow) {
-          cleanup();
-          return;
-        }
-
-        const handleAfterPrint = () => {
-          setTimeout(cleanup, 1000);
-        };
-
-        printWindow.addEventListener("afterprint", handleAfterPrint, { once: true });
-        printWindow.focus();
-        printWindow.print();
-        setTimeout(cleanup, 120000);
-      }, 700);
-    },
-    { once: true }
-  );
+  frame.onload = triggerPrint;
+  frameWindow.onafterprint = cleanup;
+  frameWindow.document.open();
+  frameWindow.document.write(html);
+  frameWindow.document.close();
+  setTimeout(triggerPrint, options.fallbackDelay || 900);
 };
+
+const THERMAL_BODY_STYLE = "margin:0;padding:0;background:#fff;color:#000;";
+const THERMAL_PRE_STYLE = "margin:0 auto;padding:4mm 3mm 3mm;max-width:52mm;white-space:pre-wrap;word-break:break-word;font:700 13px/1.35 monospace;color:#000;background:#fff;";
+const THERMAL_TEXT_WIDTH = 30;
+
+const buildThermalPrintDocument = (title, text) => `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(title)}</title>
+  </head>
+  <body style="${THERMAL_BODY_STYLE}">
+    <pre style="${THERMAL_PRE_STYLE}">${escapeHtml(text)}</pre>
+  </body>
+</html>`;
+
+const normalizePrintText = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
+
+const wrapPrintText = (value, width = THERMAL_TEXT_WIDTH) => {
+  const text = normalizePrintText(value);
+  if (!text) return [""];
+
+  const words = text.split(" ");
+  const lines = [];
+  let current = "";
+
+  words.forEach((word) => {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length <= width) {
+      current = next;
+      return;
+    }
+    if (current) lines.push(current);
+    if (word.length <= width) {
+      current = word;
+      return;
+    }
+    for (let index = 0; index < word.length; index += width) {
+      lines.push(word.slice(index, index + width));
+    }
+    current = "";
+  });
+
+  if (current) lines.push(current);
+  return lines.length ? lines : [text];
+};
+
+const thermalSeparator = () => "-".repeat(THERMAL_TEXT_WIDTH);
+
+const thermalLine = (label, amount = "") => {
+  const text = normalizePrintText(label);
+  const amountText = normalizePrintText(amount);
+  if (!amountText) return wrapPrintText(text).join("\n");
+
+  const inline = `${text} ${amountText}`.trim();
+  if (inline.length <= THERMAL_TEXT_WIDTH) {
+    const spaces = Math.max(1, THERMAL_TEXT_WIDTH - text.length - amountText.length);
+    return `${text}${" ".repeat(spaces)}${amountText}`;
+  }
+
+  return `${wrapPrintText(text).join("\n")}\n${amountText}`;
+};
+
+const joinThermalLines = (...sections) =>
+  sections
+    .flat()
+    .filter((line) => line !== null && line !== undefined && line !== "")
+    .join("\n");
 
 const printKitchenTicket = (order) => {
   const tableLabel = state.currentTable ? tableDisplayLabel(state.currentTable) : "Table";
   const date = new Date().toLocaleString();
   const lines = (order.items || [])
-    .map(
-      (line) =>
-        `<table>
-          <tr>
-            <td class="qty">${line.qty} x</td>
-            <td class="name">${line.name}</td>
-          </tr>
-        </table>`
-    )
-    .join("") || "<div style='margin:10px 0;font-size:18px;'>Aucun article</div>";
+    .map((line) => thermalLine(`${line.qty} x ${line.name}`, euros(line.price))) || [];
 
-  const html = buildThermalPrintDocument(
-    "Ticket Cuisine",
-    `
-      <div class="ticket-print">
-        <h2>Ticket Cuisine</h2>
-        <div class="meta">${tableLabel}  -  ${date}</div>
-        <hr/>
-        ${lines}
-        <hr/>
-        ${buildPrintRow(`Total lignes`, String(order.items?.reduce((a, l) => a + l.qty, 0) || 0), { strong: true })}
-      </div>
-    `
+  const text = joinThermalLines(
+    "TICKET CUISINE",
+    tableLabel,
+    date,
+    thermalSeparator(),
+    lines.length ? lines : "Aucun article",
+    thermalSeparator(),
+    thermalLine("Total lignes", String(order.items?.reduce((a, l) => a + l.qty, 0) || 0))
   );
+
+  const html = buildThermalPrintDocument("Ticket Cuisine", text);
   openPrintWindow(html);
 };
 
 const sendToKitchen = async () => {
   if (!state.currentOrder) return;
   try {
-    if (state.printKitchen) {
-      printKitchenTicket(state.currentOrder);
-    }
     const order = await api(`/api/orders/${state.currentOrder.id}/send-kitchen`, { method: "POST" });
     state.currentOrder = order;
     renderKitchenStatus();
     alert("Commande envoyee en cuisine");
+    if (state.printKitchen) {
+      printKitchenTicket(order);
+    }
   } catch (err) {
     console.error(err);
     alert("Impossible d'envoyer en cuisine");
@@ -910,51 +825,37 @@ const printReceiptTicket = () => {
         ? lastTicket.totalCard
         : 0;
   const lines = (lastTicket.items || [])
-    .map(
-      (line) =>
-        `<table style="margin:4px 0 0 0;">
-          <tr>
-            <td class="qty"><strong>${line.qty} x</strong></td>
-            <td class="name">${line.name}</td>
-            <td class="amount">${euros(line.price * line.qty)}</td>
-          </tr>
-        </table>`
-    )
-    .join("") || "<div style='margin:8px 0;'>Aucun article</div>";
-  let paymentDetails = "";
+    .map((line) => thermalLine(`${line.qty} x ${line.name}`, euros(line.price * line.qty))) || [];
+  const paymentDetails = [];
   if (totalCash > 0) {
-    paymentDetails += buildPrintRow("Cash", euros(totalCash), { strong: true });
+    paymentDetails.push(thermalLine("Cash", euros(totalCash)));
   }
   if (totalCard > 0) {
-    paymentDetails += buildPrintRow("Carte", euros(totalCard), { strong: true });
+    paymentDetails.push(thermalLine("Carte", euros(totalCard)));
   }
-  if (!paymentDetails) {
-    paymentDetails = buildPrintRow(methodLabel, euros(lastTicket.totalTtc || 0), { strong: true });
+  if (!paymentDetails.length) {
+    paymentDetails.push(thermalLine("Carte", euros(lastTicket.totalTtc || 0)));
   }
   if (typeof lastTicket.changeDue === "number" && lastTicket.changeDue > 0) {
-    paymentDetails += buildPrintRow("Rendu", euros(lastTicket.changeDue), { strong: true });
+    paymentDetails.push(thermalLine("Rendu", euros(lastTicket.changeDue)));
   }
-  const vatLine = hasVatNumber(lastTicket.vatNumber)
-    ? `<div class="meta">TVA: ${lastTicket.vatNumber}</div>`
-    : "";
-
-  const html = buildThermalPrintDocument(
-    "Ticket",
-    `
-        <div class="ticket-print">
-          <h2>${lastTicket.restaurant || "Ticket"}</h2>
-          <div class="meta">Ticket N ${formatTicketNumber(lastTicket.ticketNumber)}</div>
-          <div class="meta">${tableDisplayLabel(lastTicket)}  -  ${date.toLocaleDateString()} ${date.toLocaleTimeString()}  -  ${methodLabel}</div>
-          ${vatLine}
-          <hr/>
-          ${lines}
-          <hr/>
-          ${paymentDetails}
-          ${buildPrintRow("Total TTC", euros(lastTicket.totalTtc || 0), { strong: true, marginTop: 4 })}
-          <div class="footer">Chauss&#233;e d'Haecht 32, 1210 Bruxelles</div>
-        </div>
-    `
+  const text = joinThermalLines(
+    lastTicket.restaurant || "Ticket",
+    `Ticket N ${formatTicketNumber(lastTicket.ticketNumber)}`,
+    tableDisplayLabel(lastTicket),
+    `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`,
+    methodLabel,
+    hasVatNumber(lastTicket.vatNumber) ? `TVA: ${lastTicket.vatNumber}` : null,
+    thermalSeparator(),
+    lines.length ? lines : "Aucun article",
+    thermalSeparator(),
+    paymentDetails,
+    thermalLine("Total TTC", euros(lastTicket.totalTtc || 0)),
+    "Chaussee d'Haecht 32",
+    "1210 Bruxelles"
   );
+
+  const html = buildThermalPrintDocument("Ticket", text);
   openPrintWindow(html);
 };
 
@@ -963,30 +864,23 @@ const printDailyTicket = () => {
     alert("Pas de ticket journalier");
     return;
   }
-  const lines = `
-    ${buildPrintRow("Cash", euros(state.daily.totalCash || 0), { strong: true })}
-    ${buildPrintRow("Carte", euros(state.daily.totalCard || 0), { strong: true })}
-  `;
+  const lines = [
+    thermalLine("Cash", euros(state.daily.totalCash || 0)),
+    thermalLine("Carte", euros(state.daily.totalCard || 0))
+  ];
   const displayDate = state.daily.date;
-  const vatLine = hasVatNumber(state.daily.vatNumber)
-    ? `<div class="meta">TVA: ${state.daily.vatNumber}</div>`
-    : "";
-
-  const html = buildThermalPrintDocument(
-    "The Moon Brussels - Ticket journalier",
-    `
-      <div class="ticket-print">
-        <h2>${RESTAURANT_NAME}</h2>
-        <div class="meta">Ticket journalier</div>
-        <div class="meta">Date : ${displayDate}</div>
-        ${vatLine}
-        <hr/>
-        ${lines}
-        <hr/>
-        ${buildPrintRow("Total journalier", euros(state.daily.totalTtc || 0), { strong: true })}
-      </div>
-    `
+  const text = joinThermalLines(
+    RESTAURANT_NAME,
+    "TICKET DE LA JOURNEE",
+    `Date: ${displayDate}`,
+    hasVatNumber(state.daily.vatNumber) ? `TVA: ${state.daily.vatNumber}` : null,
+    thermalSeparator(),
+    lines,
+    thermalSeparator(),
+    thermalLine("Total journalier", euros(state.daily.totalTtc || 0))
   );
+
+  const html = buildThermalPrintDocument(`${RESTAURANT_NAME} - TICKET DE LA JOURNEE`, text);
   openPrintWindow(html);
 };
 
