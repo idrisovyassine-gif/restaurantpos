@@ -700,9 +700,11 @@ const openPrintWindow = (html, options = {}) => {
   setTimeout(triggerPrint, options.fallbackDelay || 900);
 };
 
-const THERMAL_BODY_STYLE = "margin:0;padding:0;background:#fff;color:#000;";
-const THERMAL_PRE_STYLE = "margin:0 auto;padding:4mm 3mm 3mm;max-width:52mm;white-space:pre-wrap;word-break:break-word;font:700 13px/1.35 monospace;color:#000;background:#fff;";
-const THERMAL_TEXT_WIDTH = 30;
+const THERMAL_PAGE_WIDTH_MM = 80;
+const THERMAL_CONTENT_WIDTH_MM = 72;
+const THERMAL_BODY_STYLE = `margin:0 auto;padding:0;width:${THERMAL_PAGE_WIDTH_MM}mm;background:#fff;color:#000;`;
+const THERMAL_PRE_STYLE = `margin:0 auto;padding:4mm 3mm 3mm;width:${THERMAL_CONTENT_WIDTH_MM}mm;white-space:pre-wrap;word-break:break-word;font:700 16px/1.4 monospace;color:#000;background:#fff;`;
+const THERMAL_TEXT_WIDTH = 28;
 
 const buildThermalPrintDocument = (title, text) => `<!doctype html>
 <html>
@@ -710,6 +712,20 @@ const buildThermalPrintDocument = (title, text) => `<!doctype html>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${escapeHtml(title)}</title>
+    <style>
+      @page {
+        size: ${THERMAL_PAGE_WIDTH_MM}mm auto;
+        margin: 0;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: ${THERMAL_PAGE_WIDTH_MM}mm;
+        background: #fff;
+      }
+    </style>
   </head>
   <body style="${THERMAL_BODY_STYLE}">
     <pre style="${THERMAL_PRE_STYLE}">${escapeHtml(text)}</pre>
