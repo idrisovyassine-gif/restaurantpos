@@ -639,12 +639,163 @@ const renderKitchenStatus = () => {
   kitchenStatus.textContent = "Envoye en cuisine";
 };
 
+const THERMAL_PAPER_WIDTH_MM = 80;
+const THERMAL_CONTENT_WIDTH_MM = 72;
+
+const buildPrintRow = (label, amount = "", options = {}) => {
+  const { strong = false, marginTop = 0 } = options;
+  const valueTag = strong ? "strong" : "span";
+  return `<table style="width:100%;border-collapse:collapse;margin:${marginTop}px 0 0 0;background:#fff;color:#000;">
+    <tr>
+      <td style="font-size:14px;padding:2px 0;text-align:left;vertical-align:top;background:#fff;color:#000;">${label}</td>
+      <td style="font-size:14px;padding:2px 0;text-align:right;vertical-align:top;white-space:nowrap;background:#fff;color:#000;"><${valueTag}>${amount}</${valueTag}></td>
+    </tr>
+  </table>`;
+};
+
+const buildThermalPrintDocument = (title, body) => `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${title}</title>
+    <style>
+      @page {
+        size: ${THERMAL_PAPER_WIDTH_MM}mm auto;
+        margin: 0;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        background: #fff;
+      }
+
+      * {
+        box-sizing: border-box;
+        background: #fff !important;
+        color: #000 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      body {
+        font-family: "Segoe UI", "Noto Sans", "Arial Unicode MS", "DejaVu Sans", sans-serif;
+      }
+
+      .ticket-print {
+        width: ${THERMAL_CONTENT_WIDTH_MM}mm;
+        margin: 0 auto;
+        padding: 3mm 2mm 2mm;
+        background: #fff;
+        color: #000;
+      }
+
+      .ticket-print h2 {
+        margin: 0 0 2mm;
+        font-size: 18px;
+        line-height: 1.2;
+        text-align: center;
+        font-weight: 800;
+      }
+
+      .ticket-print .meta {
+        margin: 0 0 1.2mm;
+        font-size: 14px;
+        line-height: 1.25;
+        text-align: center;
+      }
+
+      .ticket-print hr {
+        border: 0;
+        border-top: 1px dashed #000;
+        margin: 2mm 0;
+      }
+
+      .ticket-print table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      .ticket-print td {
+        font-size: 14px;
+        line-height: 1.25;
+        padding: 2px 0;
+        vertical-align: top;
+      }
+
+      .ticket-print .qty {
+        white-space: nowrap;
+        font-weight: 700;
+      }
+
+      .ticket-print .name {
+        padding: 0 8px;
+        word-break: break-word;
+      }
+
+      .ticket-print .amount {
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .ticket-print .footer {
+        margin-top: 10px;
+        font-size: 13px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>${body}</body>
+</html>`;
+
 const openPrintWindow = (html) => {
   if (typeof pendingPrintCleanup === "function") {
     pendingPrintCleanup();
     pendingPrintCleanup = null;
   }
 
+  const popup = window.open("", "_blank", "width=420,height=900");
+  if (popup && !popup.closed) {
+    popup.document.open();
+    popup.document.write(html);
+    popup.document.close();
+
+    const cleanup = () => {
+      try {
+        if (!popup.closed) popup.close();
+      } catch (err) {
+        console.error("Impossible de fermer la fenetre d'impression", err);
+      } finally {
+        pendingPrintCleanup = null;
+      }
+    };
+
+    pendingPrintCleanup = cleanup;
+
+    const launchPrint = () => {
+      try {
+        popup.focus();
+        popup.print();
+        setTimeout(cleanup, 120000);
+      } catch (err) {
+        console.error("Impossible de lancer l'impression popup", err);
+        cleanup();
+      }
+    };
+
+    popup.addEventListener("afterprint", () => setTimeout(cleanup, 1000), { once: true });
+    if (popup.document.readyState === "complete") {
+      setTimeout(launchPrint, 300);
+    } else {
+      popup.addEventListener("load", () => setTimeout(launchPrint, 300), { once: true });
+    }
+    return;
+  }
+
+  const objectUrl = URL.createObjectURL(new Blob([html], { type: "text/html" }));
   const frame = document.createElement("iframe");
   frame.setAttribute("aria-hidden", "true");
   frame.style.position = "fixed";
@@ -654,7 +805,7 @@ const openPrintWindow = (html) => {
   frame.style.height = "1px";
   frame.style.border = "0";
   frame.style.opacity = "0";
-  frame.srcdoc = html;
+  frame.src = objectUrl;
   document.body.appendChild(frame);
 
   let cleaned = false;
@@ -662,6 +813,7 @@ const openPrintWindow = (html) => {
     if (cleaned) return;
     cleaned = true;
     frame.remove();
+    URL.revokeObjectURL(objectUrl);
     pendingPrintCleanup = null;
   };
 
@@ -685,7 +837,7 @@ const openPrintWindow = (html) => {
         printWindow.focus();
         printWindow.print();
         setTimeout(cleanup, 120000);
-      }, 500);
+      }, 700);
     },
     { once: true }
   );
@@ -697,36 +849,29 @@ const printKitchenTicket = (order) => {
   const lines = (order.items || [])
     .map(
       (line) =>
-        `<div style="font-size:18px;margin:6px 0;">
-          <strong>${line.qty} x</strong> ${line.name}
-        </div>`
+        `<table>
+          <tr>
+            <td class="qty">${line.qty} x</td>
+            <td class="name">${line.name}</td>
+          </tr>
+        </table>`
     )
     .join("") || "<div style='margin:10px 0;font-size:18px;'>Aucun article</div>";
 
-  const html = `
-    <!doctype html>
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <title>Ticket Cuisine</title>
-        <style>
-          body { font-family: "Segoe UI", "Noto Sans", "Arial Unicode MS", "DejaVu Sans", sans-serif; padding: 14px; }
-          h2 { margin: 0 0 10px 0; font-size: 24px; }
-          .meta { font-size: 18px; margin-bottom: 10px; }
-          hr { border: 0; border-top: 1px dashed #333; margin: 10px 0; }
-        </style>
-      </head>
-      <body>
+  const html = buildThermalPrintDocument(
+    "Ticket Cuisine",
+    `
+      <div class="ticket-print">
         <h2>Ticket Cuisine</h2>
         <div class="meta">${tableLabel}  -  ${date}</div>
         <hr/>
         ${lines}
         <hr/>
-        <div style="font-size:14px;">Total lignes: ${order.items?.reduce((a, l) => a + l.qty, 0) || 0}</div>
-      </body>
-    </html>
-  `;
-  openPrintWindow(html, "kitchen");
+        ${buildPrintRow(`Total lignes`, String(order.items?.reduce((a, l) => a + l.qty, 0) || 0), { strong: true })}
+      </div>
+    `
+  );
+  openPrintWindow(html);
 };
 
 const sendToKitchen = async () => {
@@ -764,24 +909,14 @@ const printReceiptTicket = () => {
       : typeof lastTicket.totalCard === "number"
         ? lastTicket.totalCard
         : 0;
-  const buildPrintRow = (label, amount, options = {}) => {
-    const { strong = false, marginTop = 0 } = options;
-    const valueTag = strong ? "strong" : "span";
-    return `<table style="width:100%;border-collapse:collapse;margin:${marginTop}px 0 0 0;background:#fff;color:#000;">
-      <tr>
-        <td style="font-size:14px;padding:2px 0;text-align:left;background:#fff;color:#000;">${label}</td>
-        <td style="font-size:14px;padding:2px 0;text-align:right;white-space:nowrap;background:#fff;color:#000;"><${valueTag}>${amount}</${valueTag}></td>
-      </tr>
-    </table>`;
-  };
   const lines = (lastTicket.items || [])
     .map(
       (line) =>
-        `<table style="width:100%;border-collapse:collapse;margin:4px 0;background:#fff;color:#000;">
+        `<table style="margin:4px 0 0 0;">
           <tr>
-            <td style="font-size:15px;padding:0;text-align:left;white-space:nowrap;background:#fff;color:#000;"><strong>${line.qty} x</strong></td>
-            <td style="font-size:15px;padding:0 8px;text-align:left;background:#fff;color:#000;">${line.name}</td>
-            <td style="font-size:15px;padding:0;text-align:right;white-space:nowrap;background:#fff;color:#000;">${euros(line.price * line.qty)}</td>
+            <td class="qty"><strong>${line.qty} x</strong></td>
+            <td class="name">${line.name}</td>
+            <td class="amount">${euros(line.price * line.qty)}</td>
           </tr>
         </table>`
     )
@@ -803,22 +938,9 @@ const printReceiptTicket = () => {
     ? `<div class="meta">TVA: ${lastTicket.vatNumber}</div>`
     : "";
 
-  const html = `
-    <!doctype html>
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <title>Ticket</title>
-        <style>
-          html, body { margin: 0; padding: 0; background: #fff; }
-          body { font-family: "Segoe UI", "Noto Sans", "Arial Unicode MS", "DejaVu Sans", sans-serif; color: #000; }
-          .ticket-print { width: 72mm; margin: 0 auto; padding: 12px 4px; background: #fff; color: #000; }
-          h2 { margin: 0 0 8px 0; font-size: 18px; }
-          .meta { font-size: 14px; margin-bottom: 8px; }
-          hr { border: 0; border-top: 1px dashed #333; margin: 8px 0; }
-        </style>
-      </head>
-      <body>
+  const html = buildThermalPrintDocument(
+    "Ticket",
+    `
         <div class="ticket-print">
           <h2>${lastTicket.restaurant || "Ticket"}</h2>
           <div class="meta">Ticket N ${formatTicketNumber(lastTicket.ticketNumber)}</div>
@@ -829,12 +951,11 @@ const printReceiptTicket = () => {
           <hr/>
           ${paymentDetails}
           ${buildPrintRow("Total TTC", euros(lastTicket.totalTtc || 0), { strong: true, marginTop: 4 })}
-          <div style="margin-top:10px;font-size:13px;text-align:center;">Chauss&#233;e d'Haecht 32, 1210 Bruxelles</div>
+          <div class="footer">Chauss&#233;e d'Haecht 32, 1210 Bruxelles</div>
         </div>
-      </body>
-    </html>
-  `;
-  openPrintWindow(html, "ticket");
+    `
+  );
+  openPrintWindow(html);
 };
 
 const printDailyTicket = () => {
@@ -843,34 +964,18 @@ const printDailyTicket = () => {
     return;
   }
   const lines = `
-        <div style="display:flex;justify-content:space-between;font-size:15px;margin:4px 0;">
-          <span>Cash</span>
-          <strong>${euros(state.daily.totalCash || 0)}</strong>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:15px;margin:4px 0;">
-          <span>Carte</span>
-          <strong>${euros(state.daily.totalCard || 0)}</strong>
-        </div>
+    ${buildPrintRow("Cash", euros(state.daily.totalCash || 0), { strong: true })}
+    ${buildPrintRow("Carte", euros(state.daily.totalCard || 0), { strong: true })}
   `;
   const displayDate = state.daily.date;
   const vatLine = hasVatNumber(state.daily.vatNumber)
     ? `<div class="meta">TVA: ${state.daily.vatNumber}</div>`
     : "";
 
-  const html = `
-    <!doctype html>
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <title>The Moon Brussels - Ticket journalier</title>
-        <style>
-          body { font-family: "Segoe UI", "Noto Sans", "Arial Unicode MS", "DejaVu Sans", sans-serif; padding: 12px; }
-          h2 { margin: 0 0 8px 0; font-size: 18px; }
-          .meta { font-size: 14px; margin-bottom: 8px; }
-          hr { border: 0; border-top: 1px dashed #333; margin: 8px 0; }
-        </style>
-      </head>
-      <body>
+  const html = buildThermalPrintDocument(
+    "The Moon Brussels - Ticket journalier",
+    `
+      <div class="ticket-print">
         <h2>${RESTAURANT_NAME}</h2>
         <div class="meta">Ticket journalier</div>
         <div class="meta">Date : ${displayDate}</div>
@@ -878,11 +983,11 @@ const printDailyTicket = () => {
         <hr/>
         ${lines}
         <hr/>
-        <div style="display:flex;justify-content:space-between;font-size:16px;"><strong>Total journalier</strong><strong>${euros(state.daily.totalTtc || 0)}</strong></div>
-      </body>
-    </html>
-  `;
-  openPrintWindow(html, "daily");
+        ${buildPrintRow("Total journalier", euros(state.daily.totalTtc || 0), { strong: true })}
+      </div>
+    `
+  );
+  openPrintWindow(html);
 };
 
 const openTable = async (tableId) => {
