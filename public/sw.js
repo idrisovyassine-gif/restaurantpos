@@ -1,9 +1,9 @@
-const CACHE_NAME = "pos-cache-v12";
+const CACHE_NAME = "pos-cache-v13";
 const ASSETS = [
   "/",
   "/index.html",
   "/styles.css",
-  "/app.js?v=11",
+  "/app.js?v=12",
   "/manifest.webmanifest",
   "/icons/icon-192.svg",
   "/icons/icon-512.svg",
