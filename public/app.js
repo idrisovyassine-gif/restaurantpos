@@ -630,19 +630,11 @@ const applyItemDelta = async (baseItems, item, delta, categoryId = state.activeC
 
 const updateItemQuantity = async (item, delta, categoryId = state.activeCategory) => {
   if (!state.currentOrder) return;
-  const previousItems = cloneItems(state.currentOrder.items);
   const nextItems = await applyItemDelta(state.currentOrder.items, item, delta, categoryId);
   if (!nextItems) return;
   state.currentOrder.items = nextItems;
   renderItems();
   renderOrder();
-  if (delta > 0) {
-    const previousQtyById = new Map(previousItems.map((line) => [line.id, Number(line.qty) || 0]));
-    const addedItems = nextItems
-      .map((line) => ({ ...line, qty: (Number(line.qty) || 0) - (previousQtyById.get(line.id) || 0) }))
-      .filter((line) => line.qty > 0);
-    if (addedItems.length) printKitchenTicket(state.currentOrder, addedItems);
-  }
   persistOrder();
 };
 
@@ -816,10 +808,10 @@ const joinThermalLines = (...sections) =>
     .filter((line) => line !== null && line !== undefined && line !== "")
     .join("\n");
 
-const printKitchenTicket = (order, kitchenItems = order.items || []) => {
+const printKitchenTicket = (order) => {
   const tableLabel = state.currentTable ? tableDisplayLabel(state.currentTable) : "Table";
   const date = new Date().toLocaleString();
-  const lines = kitchenItems
+  const lines = (order.items || [])
     .map((line) => thermalLine(`${line.qty} x ${line.name}`, euros(line.price))) || [];
 
   const text = joinThermalLines(
@@ -829,11 +821,30 @@ const printKitchenTicket = (order, kitchenItems = order.items || []) => {
     thermalSeparator(),
     lines.length ? lines : "Aucun article",
     thermalSeparator(),
-    thermalLine("Total lignes", String(kitchenItems.reduce((a, l) => a + l.qty, 0) || 0))
+    thermalLine("Total lignes", String(order.items?.reduce((a, l) => a + l.qty, 0) || 0))
   );
 
   const html = buildThermalPrintDocument("Ticket Cuisine", text);
   openPrintWindow(html);
+};
+
+const sendToKitchen = async () => {
+  if (!state.currentOrder) return;
+  clearTimeout(saveTimeout);
+  try {
+    const savedOrder = await api(`/api/orders/${state.currentOrder.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ items: state.currentOrder.items })
+    });
+    const order = await api(`/api/orders/${savedOrder.id}/send-kitchen`, { method: "POST" });
+    state.currentOrder = order;
+    localStorage.setItem(`order-${state.currentTable.id}`, JSON.stringify(order.items));
+    renderKitchenStatus();
+    printKitchenTicket(order);
+  } catch (err) {
+    console.error(err);
+    alert("Impossible d'envoyer en cuisine");
+  }
 };
 
 const printReceiptTicket = () => {
@@ -1604,6 +1615,7 @@ const registerEvents = () => {
     state.currentOrder = null;
   });
   document.getElementById("mark-pay").addEventListener("click", markToPay);
+  document.getElementById("send-kitchen").addEventListener("click", sendToKitchen);
   document.getElementById("refresh-tables").addEventListener("click", refreshTables);
   document.getElementById("close-ticket").addEventListener("click", hideTicket);
   document.getElementById("print-ticket").addEventListener("click", printReceiptTicket);
