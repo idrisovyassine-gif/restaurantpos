@@ -145,6 +145,16 @@ const menu = [
     ]
   },
   {
+    id: "mokloub",
+    label: "Mokloub",
+    items: [{ id: "mokloub", name: "Mokloub", price: 12.5 }]
+  },
+  {
+    id: "sandwichs",
+    label: "Sandwichs",
+    items: [{ id: "sandwich-charcuterie", name: "Sandwich charcuterie", price: 12.0 }]
+  },
+  {
     id: "viandes",
     label: "Nos Viandes",
     items: [
