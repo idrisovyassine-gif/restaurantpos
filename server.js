@@ -41,7 +41,6 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 const RESTAURANT_NAME = "The Moon Brussels";
-const APP_PIN = (process.env.APP_PIN || "121030121030").trim();
 const COMPANY_VAT_NUMBER = (process.env.COMPANY_VAT_NUMBER || "BE 0773 802 850").trim();
 const TELEGRAM_BOT_TOKEN = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
 const TELEGRAM_CHAT_ID = (process.env.TELEGRAM_CHAT_ID || "").trim();
@@ -57,6 +56,8 @@ const STAFF_FILE = path.join(DATA_DIR, "staff.json");
 const CLIENT_TICKET_RETENTION_DAYS = 15;
 const DAILY_TICKET_RETENTION_MONTHS = 3;
 const authSessions = new Map();
+const INITIAL_MANAGER_NAME = "Ilias";
+const INITIAL_MANAGER_PIN = "1140";
 
 const hashPin = (pin) => crypto.createHash("sha256").update(String(pin)).digest("hex");
 
@@ -73,9 +74,9 @@ const writeStaffFile = (staff) => {
 const createInitialStaff = () => [
   {
     id: "manager",
-    name: "Gerant",
+    name: INITIAL_MANAGER_NAME,
     role: "manager",
-    pinHash: hashPin(APP_PIN),
+    pinHash: hashPin(INITIAL_MANAGER_PIN),
     createdAt: new Date().toISOString()
   }
 ];
@@ -87,7 +88,16 @@ const loadStaff = () => {
       const valid = Array.isArray(saved)
         ? saved.filter((staff) => staff?.id && staff?.name && staff?.role && staff?.pinHash)
         : [];
-      if (valid.some((staff) => staff.role === "manager")) return valid;
+      if (valid.some((staff) => staff.role === "manager")) {
+        const defaultManager = valid.find((staff) => staff.id === "manager");
+        if (defaultManager) {
+          defaultManager.name = INITIAL_MANAGER_NAME;
+          defaultManager.pinHash = hashPin(INITIAL_MANAGER_PIN);
+          defaultManager.updatedAt = new Date().toISOString();
+          writeStaffFile(valid);
+        }
+        return valid;
+      }
     }
   } catch (error) {
     console.error("Impossible de lire le personnel", error);
