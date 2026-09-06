@@ -7,7 +7,6 @@
   currentOrder: null,
   saving: false,
   daily: null,
-  printKitchen: true,
   paymentMethod: "card",
   history: [],
   selectedTicketId: null,
@@ -637,7 +636,7 @@ const updateItemQuantity = async (item, delta, categoryId = state.activeCategory
   state.currentOrder.items = nextItems;
   renderItems();
   renderOrder();
-  if (state.printKitchen && delta > 0) {
+  if (delta > 0) {
     const previousQtyById = new Map(previousItems.map((line) => [line.id, Number(line.qty) || 0]));
     const addedItems = nextItems
       .map((line) => ({ ...line, qty: (Number(line.qty) || 0) - (previousQtyById.get(line.id) || 0) }))
@@ -1595,19 +1594,6 @@ const saveHistoryChanges = async () => {
   }
 };
 
-const updateKitchenPrintToggle = () => {
-  const btn = document.getElementById("kitchen-print-toggle");
-  if (!btn) return;
-  btn.textContent = `Impression cuisine : ${state.printKitchen ? "on" : "off"}`;
-};
-
-const toggleKitchenPrint = () => {
-  state.printKitchen = !state.printKitchen;
-  localStorage.setItem("kitchen-print-enabled", state.printKitchen ? "1" : "0");
-  updateKitchenPrintToggle();
-  alert(state.printKitchen ? "Impression cuisine activee sur cet appareil" : "Impression cuisine desactivee");
-};
-
 const registerEvents = () => {
   if (state.eventsBound) return;
   state.eventsBound = true;
@@ -1627,7 +1613,6 @@ const registerEvents = () => {
   if (historyBtn) historyBtn.addEventListener("click", openHistoryModal);
   document.getElementById("close-daily").addEventListener("click", hideDaily);
   document.getElementById("print-daily").addEventListener("click", printDailyTicket);
-  document.getElementById("kitchen-print-toggle").addEventListener("click", toggleKitchenPrint);
   if (roomNormalBtn) roomNormalBtn.addEventListener("click", () => setActiveRoom("normal"));
   if (roomVipBtn) roomVipBtn.addEventListener("click", () => setActiveRoom("vip"));
   if (confirmPaymentBtn) confirmPaymentBtn.addEventListener("click", confirmPayment);
@@ -1701,11 +1686,8 @@ const bootstrapApp = async () => {
     state.activeCategory = state.menu[0]?.id;
     state.historyEditCategoryId = state.menu[0]?.id || null;
     state.activeRoom = localStorage.getItem("active-room") === "vip" ? "vip" : "normal";
-    const kitchenPrintSetting = localStorage.getItem("kitchen-print-enabled");
-    state.printKitchen = kitchenPrintSetting === null ? true : kitchenPrintSetting === "1";
     state.paymentMethod = "card";
     updateUserInterface();
-    updateKitchenPrintToggle();
     renderCategories();
     renderItems();
     renderHistoryCategoryOptions();
