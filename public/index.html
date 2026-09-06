@@ -12,9 +12,17 @@
   <div id="auth-overlay" class="auth-overlay">
     <div class="auth-card">
       <p class="eyebrow">Acces securise</p>
-      <h2>Code PIN requis</h2>
-      <p class="auth-copy">Entrez le code PIN pour acceder a l'application.</p>
+      <h2>Connexion equipe</h2>
+      <p class="auth-copy">Entrez votre nom et votre code PIN pour ouvrir la caisse.</p>
       <form id="auth-form" class="auth-form">
+        <label for="auth-name">Nom</label>
+        <input
+          id="auth-name"
+          type="text"
+          autocomplete="username"
+          placeholder="Votre nom"
+          required
+        />
         <label for="auth-pin">Code PIN</label>
         <input
           id="auth-pin"
@@ -38,14 +46,18 @@
         <div>
           <p class="eyebrow">Service en salle</p>
           <h1>The Moon Brussels</h1>
+          <p id="current-user" class="current-user"></p>
         </div>
       </div>
       <div class="top-actions">
         <button id="kitchen-print-toggle" class="ghost-btn">Impression cuisine : off</button>
-        <button id="daily-report" class="ghost-btn">Ticket journalier</button>
-        <button id="history-btn" class="ghost-btn">Historique</button>
+        <button id="daily-report" class="ghost-btn manager-only hidden">Ticket journalier</button>
+        <button id="history-btn" class="ghost-btn manager-only hidden">Historique</button>
+        <button id="staff-report" class="ghost-btn manager-only hidden">Suivi serveurs</button>
+        <button id="staff-management" class="ghost-btn manager-only hidden">Personnel</button>
         <button id="refresh-tables" class="ghost-btn">Actualiser</button>
         <button id="fullscreen-btn" class="ghost-btn">Plein ecran</button>
+        <button id="logout-btn" class="ghost-btn">Changer d'utilisateur</button>
       </div>
     </header>
 
@@ -216,9 +228,40 @@
       </div>
     </div>
 
+    <div id="staff-modal" class="ticket-modal hidden">
+      <div class="ticket-card history-card">
+        <div class="ticket-head">
+          <h3>Gestion du personnel</h3>
+          <p class="ticket-vat">Ajoutez, modifiez ou supprimez un serveur.</p>
+        </div>
+        <form id="staff-create-form" class="staff-create-form">
+          <input id="staff-create-name" type="text" placeholder="Nom du serveur" required />
+          <input id="staff-create-pin" type="password" inputmode="numeric" placeholder="Nouveau PIN" minlength="4" required />
+          <button class="pill-btn primary" type="submit">Ajouter</button>
+        </form>
+        <div id="staff-list" class="staff-list"></div>
+        <div class="ticket-footer">
+          <button id="close-staff" class="ghost-btn" type="button">Fermer</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="staff-report-modal" class="ticket-modal hidden">
+      <div class="ticket-card history-card">
+        <div class="ticket-head">
+          <h3>Suivi des serveurs</h3>
+          <p id="staff-report-date" class="ticket-vat"></p>
+        </div>
+        <div id="staff-report-list" class="staff-report-list"></div>
+        <div class="ticket-footer">
+          <button id="close-staff-report" class="ghost-btn" type="button">Fermer</button>
+        </div>
+      </div>
+    </div>
+
     <div id="print-root" class="print-root" aria-hidden="true"></div>
   </div>
 
-  <script src="/app.js?v=12" defer></script>
+  <script src="/app.js?v=13" defer></script>
 </body>
 </html>

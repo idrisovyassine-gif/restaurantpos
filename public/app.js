@@ -16,6 +16,7 @@
   historyIncludeTouched: false,
   historyEditCategoryId: null,
   authenticated: false,
+  user: null,
   authSubmitting: false,
   appReady: false,
   eventsBound: false,
@@ -29,6 +30,7 @@ const RESTAURANT_NAME = "The Moon Brussels";
 
 const authOverlay = document.getElementById("auth-overlay");
 const authForm = document.getElementById("auth-form");
+const authNameInput = document.getElementById("auth-name");
 const authPinInput = document.getElementById("auth-pin");
 const authErrorEl = document.getElementById("auth-error");
 const authSubmitBtn = document.getElementById("auth-submit");
@@ -83,6 +85,21 @@ const optionTitleEl = document.getElementById("option-title");
 const optionSubtitleEl = document.getElementById("option-subtitle");
 const optionListEl = document.getElementById("option-list");
 const optionCancelBtn = document.getElementById("option-cancel");
+const currentUserEl = document.getElementById("current-user");
+const managerOnlyEls = Array.from(document.querySelectorAll(".manager-only"));
+const staffManagementBtn = document.getElementById("staff-management");
+const staffReportBtn = document.getElementById("staff-report");
+const logoutBtn = document.getElementById("logout-btn");
+const staffModal = document.getElementById("staff-modal");
+const staffCreateForm = document.getElementById("staff-create-form");
+const staffCreateName = document.getElementById("staff-create-name");
+const staffCreatePin = document.getElementById("staff-create-pin");
+const staffList = document.getElementById("staff-list");
+const closeStaffBtn = document.getElementById("close-staff");
+const staffReportModal = document.getElementById("staff-report-modal");
+const staffReportDate = document.getElementById("staff-report-date");
+const staffReportList = document.getElementById("staff-report-list");
+const closeStaffReportBtn = document.getElementById("close-staff-report");
 const ACCOMPANIMENT_PRICE = 0;
 const SAUCE_PRICE = 0;
 const GRATIN_PRICE = 2;
@@ -163,17 +180,24 @@ const setAuthError = (message = "") => {
 
 const setAuthSubmitting = (submitting) => {
   state.authSubmitting = submitting;
+  if (authNameInput) authNameInput.disabled = submitting;
   if (authPinInput) authPinInput.disabled = submitting;
   if (authSubmitBtn) authSubmitBtn.disabled = submitting;
 };
 
 const focusPinInput = () => {
+  if (authNameInput && !authNameInput.value.trim()) {
+    window.setTimeout(() => authNameInput.focus(), 50);
+    return;
+  }
   if (!authPinInput) return;
   window.setTimeout(() => authPinInput.focus(), 50);
 };
 
 const lockApp = (message = "") => {
   state.authenticated = false;
+  state.user = null;
+  updateUserInterface();
   setAuthError(message);
   setAuthLocked(true);
   focusPinInput();
@@ -190,7 +214,7 @@ const api = async (url, options = {}) => {
   const res = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
   const payload = await res.json().catch(() => null);
   if (res.status === 401) {
-    lockApp((payload && payload.error) || "Code PIN requis");
+    lockApp((payload && payload.error) || "Authentification requise");
   }
   if (!res.ok) {
     const error = new Error((payload && payload.error) || `Erreur ${res.status}`);
@@ -1376,6 +1400,182 @@ const hideHistoryModal = () => {
   historyModal.classList.add("hidden");
 };
 
+const isManagerUser = () => state.user?.role === "manager";
+
+const updateUserInterface = () => {
+  if (currentUserEl) {
+    const role = isManagerUser() ? "Gerant" : "Serveur";
+    currentUserEl.textContent = state.user ? `${state.user.name} - ${role}` : "";
+  }
+  managerOnlyEls.forEach((element) => element.classList.toggle("hidden", !isManagerUser()));
+};
+
+const hideStaffModal = () => {
+  if (staffModal) staffModal.classList.add("hidden");
+};
+
+const renderStaffList = (staff) => {
+  if (!staffList) return;
+  staffList.innerHTML = "";
+  staff.forEach((member) => {
+    const row = document.createElement("div");
+    row.className = "staff-row";
+    row.innerHTML = `
+      <div>
+        <strong>${escapeHtml(member.name)}</strong>
+        <span>${member.role === "manager" ? "Gerant" : "Serveur"}</span>
+      </div>
+      <input type="password" inputmode="numeric" minlength="4" placeholder="Nouveau PIN" />
+      <div class="staff-actions">
+        <button class="ghost-btn staff-pin-btn" type="button">Modifier PIN</button>
+        ${member.role === "manager" ? "" : '<button class="ghost-btn danger-btn staff-delete-btn" type="button">Supprimer</button>'}
+      </div>
+    `;
+    const pinInput = row.querySelector("input");
+    row.querySelector(".staff-pin-btn").addEventListener("click", async () => {
+      const pin = pinInput.value.trim();
+      if (!/^\d{4,}$/.test(pin)) {
+        alert("Le PIN doit contenir au moins 4 chiffres");
+        return;
+      }
+      try {
+        await api(`/api/staff/${member.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ pin })
+        });
+        pinInput.value = "";
+        alert(`PIN de ${member.name} modifie`);
+      } catch (err) {
+        console.error(err);
+        alert("Impossible de modifier le PIN");
+      }
+    });
+    const deleteBtn = row.querySelector(".staff-delete-btn");
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", async () => {
+        if (!window.confirm(`Supprimer definitivement ${member.name} ?`)) return;
+        try {
+          await api(`/api/staff/${member.id}`, { method: "DELETE" });
+          await openStaffModal();
+        } catch (err) {
+          console.error(err);
+          alert("Impossible de supprimer ce serveur");
+        }
+      });
+    }
+    staffList.appendChild(row);
+  });
+};
+
+const openStaffModal = async () => {
+  if (!isManagerUser() || !staffModal) return;
+  try {
+    renderStaffList(await api("/api/staff"));
+    staffModal.classList.remove("hidden");
+  } catch (err) {
+    console.error(err);
+    alert("Impossible de charger le personnel");
+  }
+};
+
+const createStaff = async (event) => {
+  event.preventDefault();
+  const name = staffCreateName?.value.trim() || "";
+  const pin = staffCreatePin?.value.trim() || "";
+  try {
+    await api("/api/staff", {
+      method: "POST",
+      body: JSON.stringify({ name, pin })
+    });
+    if (staffCreateName) staffCreateName.value = "";
+    if (staffCreatePin) staffCreatePin.value = "";
+    await openStaffModal();
+  } catch (err) {
+    console.error(err);
+    alert("Impossible d'ajouter ce serveur. Verifiez le nom et le PIN.");
+  }
+};
+
+const hideStaffReportModal = () => {
+  if (staffReportModal) staffReportModal.classList.add("hidden");
+};
+
+const printStaffReport = (report, date) => {
+  const payments = (report.tickets || []).map((ticket) =>
+    thermalLine(`Table ${ticket.tableNumber} - Ticket ${formatTicketNumber(ticket.ticketNumber)}`, euros(ticket.totalTtc || 0))
+  );
+  const pointages = (report.pointages || []).map((item) => `${item.qty} x ${item.name}`);
+  const text = joinThermalLines(
+    RESTAURANT_NAME,
+    `TICKET SERVEUR - ${report.staff.name}`,
+    `Date: ${date}`,
+    thermalSeparator(),
+    "Encaissements",
+    payments.length ? payments : "Aucun paiement",
+    thermalSeparator(),
+    thermalLine("Cash", euros(report.totalCash || 0)),
+    thermalLine("Carte", euros(report.totalCard || 0)),
+    thermalLine("Total", euros(report.totalTtc || 0)),
+    thermalSeparator(),
+    "Articles pointes",
+    pointages.length ? pointages : "Aucun article pointe"
+  );
+  openPrintWindow(buildThermalPrintDocument(`Ticket ${report.staff.name}`, text));
+};
+
+const renderStaffReports = (data) => {
+  if (!staffReportList) return;
+  staffReportList.innerHTML = "";
+  if (staffReportDate) staffReportDate.textContent = `Date : ${data.date}`;
+  (data.reports || []).forEach((report) => {
+    const card = document.createElement("div");
+    card.className = "staff-report-card";
+    const pointages = (report.pointages || [])
+      .map((item) => `<li>${item.qty} x ${escapeHtml(item.name)}</li>`)
+      .join("") || "<li>Aucun article pointe</li>";
+    card.innerHTML = `
+      <div class="staff-report-head">
+        <strong>${escapeHtml(report.staff.name)}</strong>
+        <span>${report.ticketCount} paiement(s)</span>
+      </div>
+      <div class="history-meta">
+        <span>Cash: ${euros(report.totalCash || 0)}</span>
+        <span>Carte: ${euros(report.totalCard || 0)}</span>
+        <span>Total: ${euros(report.totalTtc || 0)}</span>
+      </div>
+      <p class="staff-report-label">Articles pointes</p>
+      <ul class="staff-pointages">${pointages}</ul>
+      <button class="pill-btn primary" type="button">Imprimer le ticket</button>
+    `;
+    card.querySelector("button").addEventListener("click", () => printStaffReport(report, data.date));
+    staffReportList.appendChild(card);
+  });
+};
+
+const openStaffReportModal = async () => {
+  if (!isManagerUser() || !staffReportModal) return;
+  try {
+    renderStaffReports(await api("/api/reports/staff"));
+    staffReportModal.classList.remove("hidden");
+  } catch (err) {
+    console.error(err);
+    alert("Impossible de charger le suivi des serveurs");
+  }
+};
+
+const logout = async () => {
+  try {
+    await fetch("/api/auth/logout", { method: "POST" });
+  } catch (err) {
+    console.error(err);
+  } finally {
+    state.appReady = false;
+    state.user = null;
+    updateUserInterface();
+    lockApp();
+  }
+};
+
 const saveHistoryChanges = async () => {
   const ticketId = state.selectedTicketId;
   if (!ticketId) return;
@@ -1460,6 +1660,12 @@ const registerEvents = () => {
   if (historyAddItemBtn) historyAddItemBtn.addEventListener("click", addHistoryItem);
   if (historySaveBtn) historySaveBtn.addEventListener("click", saveHistoryChanges);
   if (historyCloseBtn) historyCloseBtn.addEventListener("click", hideHistoryModal);
+  if (staffManagementBtn) staffManagementBtn.addEventListener("click", openStaffModal);
+  if (staffReportBtn) staffReportBtn.addEventListener("click", openStaffReportModal);
+  if (closeStaffBtn) closeStaffBtn.addEventListener("click", hideStaffModal);
+  if (closeStaffReportBtn) closeStaffReportBtn.addEventListener("click", hideStaffReportModal);
+  if (staffCreateForm) staffCreateForm.addEventListener("submit", createStaff);
+  if (logoutBtn) logoutBtn.addEventListener("click", logout);
   if (historyModal) {
     historyModal.addEventListener("click", (event) => {
       if (event.target === historyModal) hideHistoryModal();
@@ -1488,9 +1694,9 @@ const checkAuthStatus = async () => {
       headers: { "Content-Type": "application/json" }
     });
     const payload = await res.json().catch(() => null);
-    return !!(payload && payload.authenticated);
+    return payload && payload.authenticated && payload.user ? payload : null;
   } catch (_error) {
-    return false;
+    return null;
   }
 };
 
@@ -1506,6 +1712,7 @@ const bootstrapApp = async () => {
     state.activeRoom = localStorage.getItem("active-room") === "vip" ? "vip" : "normal";
     state.printKitchen = localStorage.getItem("kitchen-print-enabled") === "1";
     state.paymentMethod = "card";
+    updateUserInterface();
     updateKitchenPrintToggle();
     renderCategories();
     renderItems();
@@ -1522,27 +1729,29 @@ const bootstrapApp = async () => {
   }
 };
 
-const submitPin = async (event) => {
+const submitLogin = async (event) => {
   event.preventDefault();
-  if (!authPinInput || state.authSubmitting) return;
+  if (!authNameInput || !authPinInput || state.authSubmitting) return;
+  const name = authNameInput.value.trim();
   const pin = authPinInput.value.trim();
-  if (!pin) {
-    setAuthError("Entrez le code PIN.");
+  if (!name || !pin) {
+    setAuthError("Entrez votre nom et votre code PIN.");
     focusPinInput();
     return;
   }
   setAuthSubmitting(true);
   setAuthError("");
   try {
-    const res = await fetch("/api/auth/pin", {
+    const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pin })
+      body: JSON.stringify({ name, pin })
     });
     const payload = await res.json().catch(() => null);
     if (!res.ok) {
-      throw new Error((payload && payload.error) || "Code PIN invalide");
+      throw new Error((payload && payload.error) || "Nom ou code PIN incorrect");
     }
+    state.user = payload.user;
     unlockApp();
     if (state.appReady) {
       await refreshTables();
@@ -1550,7 +1759,7 @@ const submitPin = async (event) => {
     }
     await bootstrapApp();
   } catch (err) {
-    setAuthError(err.message || "Code PIN invalide");
+    setAuthError(err.message || "Nom ou code PIN incorrect");
     focusPinInput();
   } finally {
     setAuthSubmitting(false);
@@ -1558,9 +1767,11 @@ const submitPin = async (event) => {
 };
 
 const init = async () => {
-  if (authForm) authForm.addEventListener("submit", submitPin);
+  if (authForm) authForm.addEventListener("submit", submitLogin);
   lockApp();
-  if (await checkAuthStatus()) {
+  const auth = await checkAuthStatus();
+  if (auth) {
+    state.user = auth.user;
     unlockApp();
     await bootstrapApp();
     return;

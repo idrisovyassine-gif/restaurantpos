@@ -53,8 +53,52 @@ const ROOM_LABELS = {
 };
 const DATA_DIR = path.join(__dirname, "data");
 const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
+const STAFF_FILE = path.join(DATA_DIR, "staff.json");
 const CLIENT_TICKET_RETENTION_DAYS = 15;
 const DAILY_TICKET_RETENTION_MONTHS = 3;
+const authSessions = new Map();
+
+const hashPin = (pin) => crypto.createHash("sha256").update(String(pin)).digest("hex");
+
+const normalizeStaffName = (value) => String(value || "").trim().replace(/\s+/g, " ");
+const staffNameKey = (value) => normalizeStaffName(value).toLocaleLowerCase("fr-BE");
+const publicStaff = (staff) =>
+  staff ? { id: staff.id, name: staff.name, role: staff.role } : null;
+
+const writeStaffFile = (staff) => {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(STAFF_FILE, JSON.stringify(staff, null, 2), "utf8");
+};
+
+const createInitialStaff = () => [
+  {
+    id: "manager",
+    name: "Gerant",
+    role: "manager",
+    pinHash: hashPin(APP_PIN),
+    createdAt: new Date().toISOString()
+  }
+];
+
+const loadStaff = () => {
+  try {
+    if (fs.existsSync(STAFF_FILE)) {
+      const saved = JSON.parse(fs.readFileSync(STAFF_FILE, "utf8"));
+      const valid = Array.isArray(saved)
+        ? saved.filter((staff) => staff?.id && staff?.name && staff?.role && staff?.pinHash)
+        : [];
+      if (valid.some((staff) => staff.role === "manager")) return valid;
+    }
+  } catch (error) {
+    console.error("Impossible de lire le personnel", error);
+  }
+  const staff = createInitialStaff();
+  writeStaffFile(staff);
+  return staff;
+};
+
+let staffMembers = loadStaff();
+const saveStaff = () => writeStaffFile(staffMembers);
 
 // Menu complet (ASCII pour compatibilite)
 const menu = [
@@ -256,7 +300,6 @@ const tables = [
 const orders = new Map();
 const settledTickets = [];
 const ticketCountersByDate = new Map();
-const pinSessions = new Map();
 
 const computeTotal = (items = []) =>
   items.reduce((acc, item) => acc + item.price * item.qty, 0);
@@ -591,7 +634,15 @@ const sendTelegramDailyReport = async (report) =>
     caption: buildTelegramDailyReportCaption(report)
   });
 
-const createOrder = (tableId) => {
+const makeAuditEvent = (user, type, details = {}) => ({
+  type,
+  date: new Date().toISOString(),
+  userId: user?.id || null,
+  userName: user?.name || "Inconnu",
+  details
+});
+
+const createOrder = (tableId, user) => {
   const id = `${Date.now()}-${tableId}-${Math.floor(Math.random() * 9999)}`;
   const order = {
     id,
@@ -599,7 +650,10 @@ const createOrder = (tableId) => {
     items: [],
     status: "open",
     sentToKitchen: false,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    openedBy: publicStaff(user),
+    lastUpdatedBy: publicStaff(user),
+    activity: [makeAuditEvent(user, "ouverture-table")]
   };
   orders.set(id, order);
   return order;
@@ -628,60 +682,126 @@ const createAuthCookie = (token) =>
     AUTH_SESSION_TTL_MS / 1000
   )}`;
 
-const purgeExpiredPinSessions = () => {
+const purgeExpiredAuthSessions = () => {
   const now = Date.now();
-  for (const [token, expiresAt] of pinSessions.entries()) {
-    if (expiresAt <= now) {
-      pinSessions.delete(token);
+  for (const [token, session] of authSessions.entries()) {
+    if (!session || session.expiresAt <= now) {
+      authSessions.delete(token);
     }
   }
 };
 
-const isPinAuthenticated = (req) => {
-  purgeExpiredPinSessions();
+const getAuthenticatedUser = (req) => {
+  purgeExpiredAuthSessions();
   const cookies = parseCookies(req.headers.cookie || "");
   const token = cookies[AUTH_COOKIE_NAME];
-  if (!token) return false;
-  const expiresAt = pinSessions.get(token);
-  if (!expiresAt || expiresAt <= Date.now()) {
-    pinSessions.delete(token);
-    return false;
-  }
-  return true;
+  return authSessions.get(token)?.user || null;
 };
 
-const requirePinAuth = (req, res, next) => {
-  if (isPinAuthenticated(req)) {
+const requireAuth = (req, res, next) => {
+  if (getAuthenticatedUser(req)) {
     return next();
   }
   clearAuthCookie(res);
-  return res.status(401).json({ error: "Code PIN requis" });
+  return res.status(401).json({ error: "Authentification requise" });
+};
+
+const requireManager = (req, res, next) => {
+  if (getAuthenticatedUser(req)?.role === "manager") {
+    return next();
+  }
+  return res.status(403).json({ error: "Acces gerant requis" });
 };
 
 loadTickets();
 purgeExpiredTickets();
 
 app.get("/api/auth/status", (req, res) => {
-  const authenticated = isPinAuthenticated(req);
-  if (!authenticated) {
+  const user = getAuthenticatedUser(req);
+  if (!user) {
     clearAuthCookie(res);
   }
-  res.json({ authenticated });
+  res.json({ authenticated: Boolean(user), user });
 });
 
-app.post("/api/auth/pin", (req, res) => {
-  const pin = String((req.body && req.body.pin) || "").trim();
-  if (pin !== APP_PIN) {
+app.post("/api/auth/login", (req, res) => {
+  const name = normalizeStaffName(req.body?.name);
+  const pin = String(req.body?.pin || "").trim();
+  const staff = staffMembers.find((member) => staffNameKey(member.name) === staffNameKey(name));
+  if (!staff || !/^\d{4,}$/.test(pin) || hashPin(pin) !== staff.pinHash) {
     clearAuthCookie(res);
-    return res.status(401).json({ error: "Code PIN invalide" });
+    return res.status(401).json({ error: "Nom ou code PIN incorrect" });
   }
   const token = crypto.randomBytes(24).toString("hex");
-  pinSessions.set(token, Date.now() + AUTH_SESSION_TTL_MS);
+  authSessions.set(token, {
+    user: publicStaff(staff),
+    expiresAt: Date.now() + AUTH_SESSION_TTL_MS
+  });
   res.setHeader("Set-Cookie", createAuthCookie(token));
-  return res.json({ authenticated: true });
+  return res.json({ authenticated: true, user: publicStaff(staff) });
 });
 
-app.use("/api", requirePinAuth);
+app.post("/api/auth/logout", (req, res) => {
+  const token = parseCookies(req.headers.cookie || "")[AUTH_COOKIE_NAME];
+  if (token) authSessions.delete(token);
+  clearAuthCookie(res);
+  return res.json({ authenticated: false });
+});
+
+app.use("/api", requireAuth);
+
+app.get("/api/staff", requireManager, (_req, res) => {
+  res.json(staffMembers.map(publicStaff));
+});
+
+app.post("/api/staff", requireManager, (req, res) => {
+  const name = normalizeStaffName(req.body?.name);
+  const pin = String(req.body?.pin || "").trim();
+  if (name.length < 2 || !/^\d{4,}$/.test(pin)) {
+    return res.status(400).json({ error: "Nom et PIN numerique de 4 chiffres minimum requis" });
+  }
+  if (staffMembers.some((staff) => staffNameKey(staff.name) === staffNameKey(name))) {
+    return res.status(409).json({ error: "Ce serveur existe deja" });
+  }
+  const staff = {
+    id: `staff-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
+    name,
+    role: "server",
+    pinHash: hashPin(pin),
+    createdAt: new Date().toISOString()
+  };
+  staffMembers.push(staff);
+  saveStaff();
+  return res.status(201).json(publicStaff(staff));
+});
+
+app.put("/api/staff/:id", requireManager, (req, res) => {
+  const staff = staffMembers.find((member) => member.id === req.params.id);
+  const pin = String(req.body?.pin || "").trim();
+  if (!staff) return res.status(404).json({ error: "Serveur introuvable" });
+  if (!/^\d{4,}$/.test(pin)) {
+    return res.status(400).json({ error: "PIN numerique de 4 chiffres minimum requis" });
+  }
+  staff.pinHash = hashPin(pin);
+  staff.updatedAt = new Date().toISOString();
+  saveStaff();
+  return res.json(publicStaff(staff));
+});
+
+app.delete("/api/staff/:id", requireManager, (req, res) => {
+  const index = staffMembers.findIndex((member) => member.id === req.params.id);
+  if (index === -1) return res.status(404).json({ error: "Serveur introuvable" });
+  const staff = staffMembers[index];
+  if (staff.role === "manager") {
+    return res.status(400).json({ error: "Le compte gerant ne peut pas etre supprime" });
+  }
+  staffMembers.splice(index, 1);
+  for (const [token, session] of authSessions.entries()) {
+    if (session.user?.id === staff.id) authSessions.delete(token);
+  }
+  saveStaff();
+  return res.json({ ok: true, staff: publicStaff(staff) });
+});
 
 app.get("/api/menu", (_req, res) => {
   res.json(menu);
@@ -692,13 +812,14 @@ app.get("/api/tables", (_req, res) => {
 });
 
 app.post("/api/tables/:id/open", (req, res) => {
+  const user = getAuthenticatedUser(req);
   const tableId = Number(req.params.id);
   const table = findTable(tableId);
   if (!table) {
     return res.status(404).json({ error: "Table introuvable" });
   }
   if (!table.orderId) {
-    const order = createOrder(tableId);
+    const order = createOrder(tableId, user);
     table.orderId = order.id;
     table.status = "occupied";
   } else if (table.status === "free") {
@@ -724,6 +845,11 @@ app.put("/api/orders/:id", (req, res) => {
   const { items = [] } = req.body || {};
   order.items = Array.isArray(items) ? items : order.items;
   order.total = computeTotal(order.items);
+  order.lastUpdatedBy = publicStaff(getAuthenticatedUser(req));
+  order.activity = [
+    ...(order.activity || []),
+    makeAuditEvent(getAuthenticatedUser(req), "mise-a-jour-commande", { items: order.items })
+  ];
   res.json(order);
 });
 
@@ -733,6 +859,7 @@ app.post("/api/orders/:id/send-kitchen", (req, res) => {
     return res.status(404).json({ error: "Commande introuvable" });
   }
   order.sentToKitchen = true;
+  order.activity = [...(order.activity || []), makeAuditEvent(getAuthenticatedUser(req), "envoi-cuisine")];
   res.json(order);
 });
 
@@ -744,6 +871,7 @@ app.post("/api/orders/:id/mark-to-pay", (req, res) => {
   const table = findTable(order.tableId);
   table.status = "to_pay";
   order.status = "to_pay";
+  order.activity = [...(order.activity || []), makeAuditEvent(getAuthenticatedUser(req), "a-payer")];
   res.json({ table, order });
 });
 
@@ -796,6 +924,12 @@ app.post("/api/orders/:id/settle", async (req, res) => {
     paidCash,
     paidCard,
     changeDue,
+    openedBy: order.openedBy || null,
+    paidBy: publicStaff(getAuthenticatedUser(req)),
+    activity: [
+      ...(order.activity || []),
+      makeAuditEvent(getAuthenticatedUser(req), "paiement", { total: totalTtc })
+    ],
     date: ticketDate,
     isDeleted: false,
     isModified: false,
@@ -815,7 +949,7 @@ app.post("/api/orders/:id/settle", async (req, res) => {
   res.json(ticket);
 });
 
-app.get("/api/tickets", (_req, res) => {
+app.get("/api/tickets", requireManager, (_req, res) => {
   purgeExpiredTickets();
   const cutoff = getClientTicketCutoff();
   const sorted = [...settledTickets]
@@ -824,7 +958,7 @@ app.get("/api/tickets", (_req, res) => {
   res.json(sorted);
 });
 
-app.patch("/api/tickets/:id", (req, res) => {
+app.patch("/api/tickets/:id", requireManager, (req, res) => {
   purgeExpiredTickets();
   const ticket = settledTickets.find((t) => t.id === req.params.id);
   if (!ticket) {
@@ -881,7 +1015,7 @@ app.patch("/api/tickets/:id", (req, res) => {
   res.json(ticket);
 });
 
-app.delete("/api/tickets/:id", (req, res) => {
+app.delete("/api/tickets/:id", requireManager, (req, res) => {
   purgeExpiredTickets();
   const ticket = settledTickets.find((t) => t.id === req.params.id);
   if (!ticket) {
@@ -895,7 +1029,7 @@ app.delete("/api/tickets/:id", (req, res) => {
   res.json(ticket);
 });
 
-app.get("/api/reports/daily", (_req, res) => {
+app.get("/api/reports/daily", requireManager, (_req, res) => {
   purgeExpiredTickets();
   const queryDate = getDateKey(_req.query.date);
   const todayKey = new Date().toISOString().slice(0, 10);
@@ -903,7 +1037,7 @@ app.get("/api/reports/daily", (_req, res) => {
   res.json(buildDailyReportData(targetKey));
 });
 
-app.post("/api/reports/daily/send", async (req, res) => {
+app.post("/api/reports/daily/send", requireManager, async (req, res) => {
   purgeExpiredTickets();
   const queryDate = getDateKey(req.body && req.body.date);
   const todayKey = new Date().toISOString().slice(0, 10);
@@ -917,6 +1051,45 @@ app.post("/api/reports/daily/send", async (req, res) => {
     console.error("Impossible d'envoyer le ticket journalier vers Telegram", error);
     res.status(500).json({ ok: false, error: "Envoi Telegram impossible" });
   }
+});
+
+app.get("/api/reports/staff", requireManager, (req, res) => {
+  purgeExpiredTickets();
+  const queryDate = getDateKey(req.query.date);
+  const targetKey = queryDate || new Date().toISOString().slice(0, 10);
+  const tickets = settledTickets.filter((ticket) => {
+    if (getDateKey(ticket.date) !== targetKey) return false;
+    return !ticket.isDeleted && (!ticket.isModified || ticket.includeInDaily);
+  });
+
+  const reports = staffMembers.map((staff) => {
+    const staffTickets = tickets.filter((ticket) => ticket.paidBy?.id === staff.id);
+    const pointages = {};
+    staffTickets.forEach((ticket) => {
+      (ticket.items || []).forEach((line) => {
+        const entry = pointages[line.name] || { name: line.name, qty: 0 };
+        entry.qty += Number(line.qty) || 0;
+        pointages[line.name] = entry;
+      });
+    });
+    return {
+      staff: publicStaff(staff),
+      ticketCount: staffTickets.length,
+      totalTtc: staffTickets.reduce((sum, ticket) => sum + (ticket.totalTtc || 0), 0),
+      totalCash: staffTickets.reduce((sum, ticket) => sum + (ticket.totalCash || 0), 0),
+      totalCard: staffTickets.reduce((sum, ticket) => sum + (ticket.totalCard || 0), 0),
+      tickets: staffTickets.map((ticket) => ({
+        ticketNumber: ticket.ticketNumber,
+        tableNumber: ticket.tableNumber || ticket.table,
+        roomLabel: ticket.roomLabel,
+        totalTtc: ticket.totalTtc,
+        date: ticket.date
+      })),
+      pointages: Object.values(pointages).sort((a, b) => a.name.localeCompare(b.name, "fr-BE"))
+    };
+  });
+
+  res.json({ date: targetKey, reports });
 });
 
 app.get("/health", (_req, res) => {
